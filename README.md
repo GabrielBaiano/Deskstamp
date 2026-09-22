@@ -15,6 +15,7 @@
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202021-red?style=flat-square&logo=rust" alt="Rust"></a>
   <a href="https://flathub.org/"><img src="https://img.shields.io/badge/Distribution-Flathub%20Ready-blue?style=flat-square" alt="Flathub"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/GabrielBaiano/Deskstamp?style=flat-square" alt="License"></a>
+  <a href="https://github.com/sponsors/GabrielBaiano"><img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=github-sponsors" alt="GitHub Sponsors"></a>
   <a href="https://buymeacoffee.com/gabrielngal"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow.svg?style=flat-square" alt="Buy Me A Coffee"></a>
 </p>
 
@@ -33,7 +34,7 @@
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
 - [Community & Support](#-community--support)
-- [Support & Donations](#-support--donations)
+- [Sponsor & Support](#-sponsor--support)
 - [License](#-license)
 
 ---
@@ -259,13 +260,17 @@ Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
-## ☕ Support & Donations
+## 💖 Sponsor & Support
 
-If you find **Deskstamp** helpful for your screen recordings, streams, or desktop setup, consider buying me a coffee to support active development and maintenance:
+If you find **Deskstamp** helpful for your screen recordings, streams, or desktop setup, please consider sponsoring or buying me a coffee to support active development:
 
 <p align="center">
+  <a href="https://github.com/sponsors/GabrielBaiano" target="_blank">
+    <img src="https://img.shields.io/badge/Sponsor%20on-GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor on GitHub" height="40"/>
+  </a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://buymeacoffee.com/gabrielngal" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="200" height="50" style="height: 50px !important; width: 200px !important;" />
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"/>
   </a>
 </p>
 
@@ -277,7 +282,7 @@ Distributed under the **GPL-3.0-or-later** License. See `LICENSE` for more infor
 
 ---
 <p align="center">
-  Want to support Deskstamp? <a href="https://buymeacoffee.com/gabrielngal">Buy me a coffee!</a>
+  Want to support Deskstamp? <a href="https://github.com/sponsors/GabrielBaiano">Sponsor on GitHub</a> or <a href="https://buymeacoffee.com/gabrielngal">Buy me a coffee!</a>
 </p>
 <p align="center">
   Made with ❤️ and the help of <a href="https://github.com/GabrielBaiano/awesome-readme">Awesome-Readme</a> by <a href="https://github.com/GabrielBaiano">Gabriel Baiano</a>
