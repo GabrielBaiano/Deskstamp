@@ -459,6 +459,7 @@ dependencies = [
  "fontdue",
  "hostname",
  "ksni",
+ "libc",
  "serde",
  "serde_json",
  "smithay-client-toolkit 0.19.2",

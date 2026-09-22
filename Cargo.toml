@@ -16,4 +16,5 @@ chrono = "0.4"
 hostname = "0.4"
 eframe = { version = "0.36.2", default-features = false, features = ["wayland", "glow", "default_fonts"] }
 ksni = { version = "0.3.6", features = ["blocking"] }
+libc = "0.2"
 

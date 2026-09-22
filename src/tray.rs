@@ -50,7 +50,7 @@ impl ksni::Tray for DeskstampTray {
         use ksni::menu::*;
         vec![
             StandardItem {
-                label: "⚡ Quick Menu...".into(),
+                label: "Deskstamp Menu...".into(),
                 activate: Box::new(|_| {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("menu").spawn();
@@ -74,17 +74,7 @@ impl ksni::Tray for DeskstampTray {
             }.into(),
             MenuItem::Separator,
             StandardItem {
-                label: "⚙️ Advanced Settings...".into(),
-                activate: Box::new(|_| {
-                    if let Ok(exe) = std::env::current_exe() {
-                        let _ = std::process::Command::new(exe).arg("gui").spawn();
-                    }
-                }),
-                ..Default::default()
-            }.into(),
-            MenuItem::Separator,
-            StandardItem {
-                label: "❌ Quit Deskstamp".into(),
+                label: "Quit Deskstamp".into(),
                 activate: Box::new(|_| {
                     let _ = crate::ipc::send_command(&crate::ipc::IpcCommand::Quit);
                     std::process::exit(0);

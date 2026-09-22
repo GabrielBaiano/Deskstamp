@@ -522,6 +522,18 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn get_menu_pid_path() -> std::path::PathBuf {
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::PathBuf::from(runtime_dir).join("deskstamp-menu.pid")
+}
+
+struct MenuPidGuard;
+impl Drop for MenuPidGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(get_menu_pid_path());
+    }
+}
+
 pub struct QuickMenuApp {
     config: WatermarkConfig,
     daemon_running: bool,
@@ -580,6 +592,11 @@ impl eframe::App for QuickMenuApp {
             self.daemon_running = send_command(&IpcCommand::Status).is_ok();
         }
 
+        // Close when user presses Escape
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
         let mut changed = false;
 
         let mut visuals = egui::Visuals::dark();
@@ -604,13 +621,16 @@ impl eframe::App for QuickMenuApp {
             }
             ui.vertical(|ui| {
                 ui.label(egui::RichText::new("Deskstamp").strong().size(17.0));
-                ui.label(egui::RichText::new("Tray Quick Menu").weak().size(11.0));
+                ui.label(egui::RichText::new("Desktop Watermark").weak().size(11.0));
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("✕").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
                 if self.config.active && self.daemon_running {
                     ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Active");
                 } else {
-                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), "○ Inactive");
+                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), "○ Disabled");
                 }
             });
         });
@@ -619,9 +639,13 @@ impl eframe::App for QuickMenuApp {
 
         // Big Main Switch Button
         let switch_label = if self.config.active {
-            egui::RichText::new("🛡️ Watermark Active  •  Click to Hide").color(egui::Color32::from_rgb(120, 240, 150)).strong()
+            egui::RichText::new("✓ Watermark is Active  •  Click to Hide")
+                .color(egui::Color32::from_rgb(120, 240, 150))
+                .strong()
         } else {
-            egui::RichText::new("○ Watermark Disabled  •  Click to Show").color(egui::Color32::from_rgb(240, 140, 140)).strong()
+            egui::RichText::new("○ Watermark is Disabled  •  Click to Show")
+                .color(egui::Color32::from_rgb(240, 140, 140))
+                .strong()
         };
         if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(switch_label)).clicked() {
             self.config.active = !self.config.active;
@@ -633,117 +657,198 @@ impl eframe::App for QuickMenuApp {
 
         ui.add_space(2.0);
 
-        // Quick Presets
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("⚡ Presets").strong().size(12.0));
-            ui.columns(2, |cols| {
-                if cols[0].button("🛡️ Column Guard").clicked() {
-                    self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                    self.config.opacity = 0.22;
-                    self.config.angle_deg = 0.0;
-                    self.config.font_size = 18.0;
-                    self.config.show_vertical_lines = true;
-                    self.config.line_width = 1.5;
-                    self.config.line_dashed = true;
-                    self.config.line_color_rgba = [255, 255, 255, 200];
-                    self.config.spacing_x = 480.0;
-                    self.config.spacing_y = 160.0;
-                    self.config.stagger_offset = 80.0;
-                    changed = true;
-                }
-                if cols[1].button("🏢 Security Grid").clicked() {
-                    self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                    self.config.opacity = 0.22;
-                    self.config.angle_deg = -25.0;
-                    self.config.font_size = 18.0;
-                    self.config.show_vertical_lines = true;
-                    self.config.line_width = 1.5;
-                    self.config.line_dashed = true;
-                    self.config.line_color_rgba = [255, 255, 255, 200];
-                    self.config.spacing_x = 380.0;
-                    self.config.spacing_y = 200.0;
-                    self.config.stagger_offset = 100.0;
-                    changed = true;
-                }
-            });
-            ui.columns(2, |cols| {
-                if cols[0].button("🔒 High-Density").clicked() {
-                    self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
-                    self.config.opacity = 0.28;
-                    self.config.angle_deg = -30.0;
-                    self.config.font_size = 16.0;
-                    self.config.show_vertical_lines = true;
-                    self.config.line_width = 1.0;
-                    self.config.line_dashed = false;
-                    self.config.line_color_rgba = [255, 255, 255, 180];
-                    self.config.spacing_x = 280.0;
-                    self.config.spacing_y = 140.0;
-                    self.config.stagger_offset = 70.0;
-                    changed = true;
-                }
-                if cols[1].button("🎥 Clean Stream").clicked() {
-                    self.config.text = "LIVE STREAM • @{user}".to_string();
-                    self.config.opacity = 0.18;
-                    self.config.angle_deg = -20.0;
-                    self.config.font_size = 24.0;
-                    self.config.show_vertical_lines = false;
-                    self.config.spacing_x = 450.0;
-                    self.config.spacing_y = 250.0;
-                    changed = true;
-                }
-            });
-        });
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                // Quick Presets
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("PRESETS").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
+                    ui.columns(2, |cols| {
+                        if cols[0].add_sized([cols[0].available_width(), 28.0], egui::Button::new("Column Guard")).clicked() {
+                            self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                            self.config.opacity = 0.22;
+                            self.config.angle_deg = 0.0;
+                            self.config.font_size = 18.0;
+                            self.config.show_vertical_lines = true;
+                            self.config.line_width = 1.5;
+                            self.config.line_dashed = true;
+                            self.config.line_color_rgba = [255, 255, 255, 200];
+                            self.config.spacing_x = 480.0;
+                            self.config.spacing_y = 160.0;
+                            self.config.stagger_offset = 80.0;
+                            changed = true;
+                        }
+                        if cols[1].add_sized([cols[1].available_width(), 28.0], egui::Button::new("Security Grid")).clicked() {
+                            self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                            self.config.opacity = 0.22;
+                            self.config.angle_deg = -25.0;
+                            self.config.font_size = 18.0;
+                            self.config.show_vertical_lines = true;
+                            self.config.line_width = 1.5;
+                            self.config.line_dashed = true;
+                            self.config.line_color_rgba = [255, 255, 255, 200];
+                            self.config.spacing_x = 380.0;
+                            self.config.spacing_y = 200.0;
+                            self.config.stagger_offset = 100.0;
+                            changed = true;
+                        }
+                    });
+                    ui.columns(2, |cols| {
+                        if cols[0].add_sized([cols[0].available_width(), 28.0], egui::Button::new("High-Density")).clicked() {
+                            self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
+                            self.config.opacity = 0.28;
+                            self.config.angle_deg = -30.0;
+                            self.config.font_size = 16.0;
+                            self.config.show_vertical_lines = true;
+                            self.config.line_width = 1.0;
+                            self.config.line_dashed = false;
+                            self.config.line_color_rgba = [255, 255, 255, 180];
+                            self.config.spacing_x = 280.0;
+                            self.config.spacing_y = 140.0;
+                            self.config.stagger_offset = 70.0;
+                            changed = true;
+                        }
+                        if cols[1].add_sized([cols[1].available_width(), 28.0], egui::Button::new("Clean Stream")).clicked() {
+                            self.config.text = "LIVE STREAM • @{user}".to_string();
+                            self.config.opacity = 0.18;
+                            self.config.angle_deg = -20.0;
+                            self.config.font_size = 24.0;
+                            self.config.show_vertical_lines = false;
+                            self.config.spacing_x = 450.0;
+                            self.config.spacing_y = 250.0;
+                            changed = true;
+                        }
+                    });
+                });
 
-        // Quick Sliders & Toggles
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("🎛️ Adjustments").strong().size(12.0));
+                ui.add_space(2.0);
 
-            // Opacity
-            ui.horizontal(|ui| {
-                ui.label("Opacity:");
-                let mut op = self.config.opacity * 100.0;
-                if ui.add(egui::Slider::new(&mut op, 2.0..=80.0).suffix("%")).changed() {
-                    self.config.opacity = op / 100.0;
-                    changed = true;
-                }
-            });
-
-            // Vertical Lines
-            ui.horizontal(|ui| {
-                if ui.checkbox(&mut self.config.show_vertical_lines, "Vertical Lines").changed() {
-                    changed = true;
-                }
-                if self.config.show_vertical_lines {
-                    if ui.checkbox(&mut self.config.line_dashed, "Dashed").changed() {
+                // Watermark Text Template
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("WATERMARK TEXT").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
+                    if ui.text_edit_singleline(&mut self.config.text).changed() {
                         changed = true;
                     }
-                }
-            });
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new("Tokens:").weak().size(11.0));
+                        if ui.button("+ User").clicked() {
+                            self.config.text.push_str(" {user}");
+                            changed = true;
+                        }
+                        if ui.button("+ Host").clicked() {
+                            self.config.text.push_str(" {hostname}");
+                            changed = true;
+                        }
+                        if ui.button("+ Time").clicked() {
+                            self.config.text.push_str(" {time:%H:%M:%S}");
+                            changed = true;
+                        }
+                        if ui.button("+ Date").clicked() {
+                            self.config.text.push_str(" {date:%Y-%m-%d}");
+                            changed = true;
+                        }
+                    });
+                });
 
-            // Rotation angle
-            ui.horizontal(|ui| {
-                ui.label("Angle:");
-                if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
-                    changed = true;
-                }
-            });
-        });
+                ui.add_space(2.0);
 
-        // Footer Actions
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("⚙️ Advanced Settings...").clicked() {
-                if let Ok(exe) = std::env::current_exe() {
-                    let _ = std::process::Command::new(exe).arg("gui").spawn();
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("❌ Quit").clicked() {
-                    let _ = send_command(&IpcCommand::Quit);
-                    std::process::exit(0);
-                }
+                // Appearance & Adjustments
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("APPEARANCE").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
+
+                    // Opacity
+                    ui.horizontal(|ui| {
+                        ui.label("Opacity:");
+                        let mut op = self.config.opacity * 100.0;
+                        if ui.add(egui::Slider::new(&mut op, 2.0..=80.0).suffix("%")).changed() {
+                            self.config.opacity = op / 100.0;
+                            changed = true;
+                        }
+                    });
+
+                    // Angle
+                    ui.horizontal(|ui| {
+                        ui.label("Angle:");
+                        if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
+                            changed = true;
+                        }
+                        if ui.button("0°").clicked() {
+                            self.config.angle_deg = 0.0;
+                            changed = true;
+                        }
+                        if ui.button("-25°").clicked() {
+                            self.config.angle_deg = -25.0;
+                            changed = true;
+                        }
+                    });
+
+                    // Font Size
+                    ui.horizontal(|ui| {
+                        ui.label("Font Size:");
+                        if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=48.0).suffix(" px")).changed() {
+                            changed = true;
+                        }
+                    });
+
+                    // Column Spacing
+                    ui.horizontal(|ui| {
+                        ui.label("Columns (X):");
+                        if ui.add(egui::Slider::new(&mut self.config.spacing_x, 150.0..=800.0).suffix(" px")).changed() {
+                            changed = true;
+                        }
+                    });
+
+                    // Row Spacing
+                    ui.horizontal(|ui| {
+                        ui.label("Rows (Y):");
+                        if ui.add(egui::Slider::new(&mut self.config.spacing_y, 60.0..=400.0).suffix(" px")).changed() {
+                            changed = true;
+                        }
+                    });
+                });
+
+                ui.add_space(2.0);
+
+                // Vertical Column Lines
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new("VERTICAL LINES").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut self.config.show_vertical_lines, "Show Lines").changed() {
+                            changed = true;
+                        }
+                        if self.config.show_vertical_lines {
+                            if ui.checkbox(&mut self.config.line_dashed, "Dashed").changed() {
+                                changed = true;
+                            }
+                        }
+                    });
+
+                    if self.config.show_vertical_lines {
+                        ui.horizontal(|ui| {
+                            ui.label("Line Width:");
+                            if ui.add(egui::Slider::new(&mut self.config.line_width, 0.5..=5.0).suffix(" px")).changed() {
+                                changed = true;
+                            }
+                        });
+                    }
+                });
+
+                ui.add_space(4.0);
+
+                // Footer Actions
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("🔄 Restart Overlay").clicked() {
+                        self.start_daemon();
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button("Quit Deskstamp").clicked() {
+                            let _ = send_command(&IpcCommand::Quit);
+                            std::process::exit(0);
+                        }
+                    });
+                });
             });
-        });
 
         if changed {
             self.notify_daemon();
@@ -752,10 +857,34 @@ impl eframe::App for QuickMenuApp {
 }
 
 pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
+    let pid_path = get_menu_pid_path();
+
+    if pid_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&pid_path) {
+            if let Ok(pid) = content.trim().parse::<i32>() {
+                unsafe {
+                    if libc::kill(pid, 0) == 0 {
+                        // Process is running! User clicked tray to toggle OFF.
+                        libc::kill(pid, libc::SIGTERM);
+                        let _ = std::fs::remove_file(&pid_path);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_file(&pid_path);
+    }
+
+    // Write current PID
+    let current_pid = std::process::id();
+    let _ = std::fs::write(&pid_path, current_pid.to_string());
+    let _guard = MenuPidGuard;
+
     let mut builder = egui::ViewportBuilder::default()
-        .with_inner_size([360.0, 520.0])
-        .with_resizable(false)
-        .with_title("Deskstamp Quick Menu");
+        .with_inner_size([380.0, 620.0])
+        .with_min_inner_size([340.0, 480.0])
+        .with_maximize_button(false)
+        .with_title("Deskstamp");
 
     if let Some(icon) = load_app_icon() {
         builder = builder.with_icon(icon);
@@ -767,7 +896,7 @@ pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     eframe::run_native(
-        "Deskstamp Quick Menu",
+        "Deskstamp",
         native_options,
         Box::new(|cc| Ok(Box::new(QuickMenuApp::new(cc)))),
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;

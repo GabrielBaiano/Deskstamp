@@ -18,13 +18,13 @@ use wayland_client::{globals::registry_queue_init, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).map(|s| s.as_str()).unwrap_or("gui");
+    let command = args.get(1).map(|s| s.as_str()).unwrap_or("menu");
 
     match command {
-        "menu" | "quick" => {
+        "menu" | "quick" | "gui" => {
             deskstamp::gui::run_quick_menu()?;
         }
-        "gui" => {
+        "settings" => {
             deskstamp::gui::run_gui()?;
         }
         "toggle" => {
