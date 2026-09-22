@@ -17,9 +17,12 @@ use wayland_client::{globals::registry_queue_init, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).map(|s| s.as_str()).unwrap_or("daemon");
+    let command = args.get(1).map(|s| s.as_str()).unwrap_or("gui");
 
     match command {
+        "gui" => {
+            deskstamp::gui::run_gui()?;
+        }
         "toggle" => {
             let res = send_command(&IpcCommand::Toggle)?;
             println!("{}", res.message);
@@ -57,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_overlay(is_test)?;
         }
         _ => {
-            eprintln!("Usage: deskstamp [daemon | test | toggle | reload | status | preview | config]");
+            eprintln!("Usage: deskstamp [gui | daemon | test | toggle | reload | status | preview | config]");
         }
     }
 
