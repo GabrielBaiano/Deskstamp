@@ -6,6 +6,7 @@ pub struct SettingsApp {
     config: WatermarkConfig,
     daemon_running: bool,
     status_msg: String,
+    logo: Option<egui::TextureHandle>,
     last_check_frame: u64,
 }
 
@@ -18,6 +19,7 @@ impl SettingsApp {
             config,
             daemon_running,
             status_msg: String::new(),
+            logo: None,
             last_check_frame: 0,
         };
 
@@ -92,11 +94,18 @@ impl eframe::App for SettingsApp {
         visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
         ui.ctx().set_visuals(visuals);
 
+        if self.logo.is_none() {
+            self.logo = Some(load_logo_texture(ui.ctx()));
+        }
+
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
 
         // Header Section
         ui.horizontal(|ui| {
-            ui.heading("🛡️ Deskstamp Settings");
+            if let Some(logo) = &self.logo {
+                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(32.0, 32.0)));
+            }
+            ui.heading("Deskstamp Settings");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.daemon_running {
                     ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Live on Screen");
@@ -469,12 +478,38 @@ impl eframe::App for SettingsApp {
     }
 }
 
+pub fn load_app_icon() -> Option<egui::IconData> {
+    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/64x64/apps/io.github.gabrielbaiano.Deskstamp.png");
+    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).ok()?;
+    Some(egui::IconData {
+        rgba: pix.data().to_vec(),
+        width: pix.width(),
+        height: pix.height(),
+    })
+}
+
+pub fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
+    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).expect("valid icon");
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [pix.width() as usize, pix.height() as usize],
+        pix.data(),
+    );
+    ctx.load_texture("deskstamp_logo", color_image, egui::TextureOptions::LINEAR)
+}
+
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = egui::ViewportBuilder::default()
+        .with_inner_size([620.0, 760.0])
+        .with_min_inner_size([500.0, 550.0])
+        .with_title("Deskstamp - Settings");
+
+    if let Some(icon) = load_app_icon() {
+        builder = builder.with_icon(icon);
+    }
+
     let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([620.0, 760.0])
-            .with_min_inner_size([500.0, 550.0])
-            .with_title("Deskstamp - Settings"),
+        viewport: builder,
         ..Default::default()
     };
 
@@ -482,6 +517,259 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
         "Deskstamp",
         native_options,
         Box::new(|cc| Ok(Box::new(SettingsApp::new(cc)))),
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+
+    Ok(())
+}
+
+pub struct QuickMenuApp {
+    config: WatermarkConfig,
+    daemon_running: bool,
+    logo: Option<egui::TextureHandle>,
+    last_check_frame: u64,
+}
+
+impl QuickMenuApp {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let config = WatermarkConfig::load();
+        let daemon_running = send_command(&IpcCommand::Status).is_ok();
+        let mut app = Self {
+            config,
+            daemon_running,
+            logo: None,
+            last_check_frame: 0,
+        };
+        if !app.daemon_running {
+            app.start_daemon();
+        }
+        app
+    }
+
+    fn notify_daemon(&mut self) {
+        let _ = self.config.save();
+        if self.daemon_running {
+            let _ = send_command(&IpcCommand::Reload);
+        } else {
+            self.start_daemon();
+        }
+    }
+
+    fn start_daemon(&mut self) {
+        if send_command(&IpcCommand::Status).is_ok() {
+            self.daemon_running = true;
+            let _ = send_command(&IpcCommand::Reload);
+            return;
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("daemon").spawn();
+            for _ in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                if send_command(&IpcCommand::Status).is_ok() {
+                    self.daemon_running = true;
+                    return;
+                }
+            }
+        }
+    }
+}
+
+impl eframe::App for QuickMenuApp {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.last_check_frame += 1;
+        if self.last_check_frame % 60 == 0 {
+            self.daemon_running = send_command(&IpcCommand::Status).is_ok();
+        }
+
+        let mut changed = false;
+
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgb(22, 25, 32);
+        visuals.window_fill = egui::Color32::from_rgb(22, 25, 32);
+        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+        ui.ctx().set_visuals(visuals);
+
+        if self.logo.is_none() {
+            self.logo = Some(load_logo_texture(ui.ctx()));
+        }
+
+        ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+
+        // Header with 3D Stamp Icon + Title
+        ui.horizontal(|ui| {
+            if let Some(logo) = &self.logo {
+                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(36.0, 36.0)));
+            }
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Deskstamp").strong().size(17.0));
+                ui.label(egui::RichText::new("Tray Quick Menu").weak().size(11.0));
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.config.active && self.daemon_running {
+                    ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Active");
+                } else {
+                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), "○ Inactive");
+                }
+            });
+        });
+
+        ui.separator();
+
+        // Big Main Switch Button
+        let switch_label = if self.config.active {
+            egui::RichText::new("🛡️ Watermark Active  •  Click to Hide").color(egui::Color32::from_rgb(120, 240, 150)).strong()
+        } else {
+            egui::RichText::new("○ Watermark Disabled  •  Click to Show").color(egui::Color32::from_rgb(240, 140, 140)).strong()
+        };
+        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(switch_label)).clicked() {
+            self.config.active = !self.config.active;
+            changed = true;
+            if self.daemon_running {
+                let _ = send_command(&IpcCommand::Toggle);
+            }
+        }
+
+        ui.add_space(2.0);
+
+        // Quick Presets
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("⚡ Presets").strong().size(12.0));
+            ui.columns(2, |cols| {
+                if cols[0].button("🛡️ Column Guard").clicked() {
+                    self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                    self.config.opacity = 0.22;
+                    self.config.angle_deg = 0.0;
+                    self.config.font_size = 18.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.line_width = 1.5;
+                    self.config.line_dashed = true;
+                    self.config.line_color_rgba = [255, 255, 255, 200];
+                    self.config.spacing_x = 480.0;
+                    self.config.spacing_y = 160.0;
+                    self.config.stagger_offset = 80.0;
+                    changed = true;
+                }
+                if cols[1].button("🏢 Security Grid").clicked() {
+                    self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                    self.config.opacity = 0.22;
+                    self.config.angle_deg = -25.0;
+                    self.config.font_size = 18.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.line_width = 1.5;
+                    self.config.line_dashed = true;
+                    self.config.line_color_rgba = [255, 255, 255, 200];
+                    self.config.spacing_x = 380.0;
+                    self.config.spacing_y = 200.0;
+                    self.config.stagger_offset = 100.0;
+                    changed = true;
+                }
+            });
+            ui.columns(2, |cols| {
+                if cols[0].button("🔒 High-Density").clicked() {
+                    self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
+                    self.config.opacity = 0.28;
+                    self.config.angle_deg = -30.0;
+                    self.config.font_size = 16.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.line_width = 1.0;
+                    self.config.line_dashed = false;
+                    self.config.line_color_rgba = [255, 255, 255, 180];
+                    self.config.spacing_x = 280.0;
+                    self.config.spacing_y = 140.0;
+                    self.config.stagger_offset = 70.0;
+                    changed = true;
+                }
+                if cols[1].button("🎥 Clean Stream").clicked() {
+                    self.config.text = "LIVE STREAM • @{user}".to_string();
+                    self.config.opacity = 0.18;
+                    self.config.angle_deg = -20.0;
+                    self.config.font_size = 24.0;
+                    self.config.show_vertical_lines = false;
+                    self.config.spacing_x = 450.0;
+                    self.config.spacing_y = 250.0;
+                    changed = true;
+                }
+            });
+        });
+
+        // Quick Sliders & Toggles
+        ui.group(|ui| {
+            ui.label(egui::RichText::new("🎛️ Adjustments").strong().size(12.0));
+
+            // Opacity
+            ui.horizontal(|ui| {
+                ui.label("Opacity:");
+                let mut op = self.config.opacity * 100.0;
+                if ui.add(egui::Slider::new(&mut op, 2.0..=80.0).suffix("%")).changed() {
+                    self.config.opacity = op / 100.0;
+                    changed = true;
+                }
+            });
+
+            // Vertical Lines
+            ui.horizontal(|ui| {
+                if ui.checkbox(&mut self.config.show_vertical_lines, "Vertical Lines").changed() {
+                    changed = true;
+                }
+                if self.config.show_vertical_lines {
+                    if ui.checkbox(&mut self.config.line_dashed, "Dashed").changed() {
+                        changed = true;
+                    }
+                }
+            });
+
+            // Rotation angle
+            ui.horizontal(|ui| {
+                ui.label("Angle:");
+                if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
+                    changed = true;
+                }
+            });
+        });
+
+        // Footer Actions
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("⚙️ Advanced Settings...").clicked() {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg("gui").spawn();
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("❌ Quit").clicked() {
+                    let _ = send_command(&IpcCommand::Quit);
+                    std::process::exit(0);
+                }
+            });
+        });
+
+        if changed {
+            self.notify_daemon();
+        }
+    }
+}
+
+pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = egui::ViewportBuilder::default()
+        .with_inner_size([360.0, 520.0])
+        .with_resizable(false)
+        .with_title("Deskstamp Quick Menu");
+
+    if let Some(icon) = load_app_icon() {
+        builder = builder.with_icon(icon);
+    }
+
+    let native_options = eframe::NativeOptions {
+        viewport: builder,
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "Deskstamp Quick Menu",
+        native_options,
+        Box::new(|cc| Ok(Box::new(QuickMenuApp::new(cc)))),
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     Ok(())

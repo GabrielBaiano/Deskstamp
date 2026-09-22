@@ -21,6 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = args.get(1).map(|s| s.as_str()).unwrap_or("gui");
 
     match command {
+        "menu" | "quick" => {
+            deskstamp::gui::run_quick_menu()?;
+        }
         "gui" => {
             deskstamp::gui::run_gui()?;
         }

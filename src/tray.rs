@@ -34,14 +34,36 @@ impl ksni::Tray for DeskstampTray {
         }
     }
 
+    fn activate(&mut self, _x: i32, _y: i32) {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe).arg("menu").spawn();
+        }
+    }
+
+    fn secondary_activate(&mut self, _x: i32, _y: i32) {
+        let current = self.active.load(Ordering::Relaxed);
+        self.active.store(!current, Ordering::Relaxed);
+        let _ = crate::ipc::send_command(&crate::ipc::IpcCommand::Toggle);
+    }
+
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::*;
         vec![
             StandardItem {
+                label: "⚡ Quick Menu...".into(),
+                activate: Box::new(|_| {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).arg("menu").spawn();
+                    }
+                }),
+                ..Default::default()
+            }.into(),
+            MenuItem::Separator,
+            StandardItem {
                 label: if self.active.load(Ordering::Relaxed) {
-                    "Disable Watermark".to_string()
+                    "✓ Watermark Enabled (Click to Hide)".to_string()
                 } else {
-                    "Enable Watermark".to_string()
+                    "○ Watermark Disabled (Click to Show)".to_string()
                 },
                 activate: Box::new(|this: &mut Self| {
                     let current = this.active.load(Ordering::Relaxed);
@@ -52,7 +74,7 @@ impl ksni::Tray for DeskstampTray {
             }.into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Open Settings".into(),
+                label: "⚙️ Advanced Settings...".into(),
                 activate: Box::new(|_| {
                     if let Ok(exe) = std::env::current_exe() {
                         let _ = std::process::Command::new(exe).arg("gui").spawn();
@@ -62,7 +84,7 @@ impl ksni::Tray for DeskstampTray {
             }.into(),
             MenuItem::Separator,
             StandardItem {
-                label: "Quit Deskstamp".into(),
+                label: "❌ Quit Deskstamp".into(),
                 activate: Box::new(|_| {
                     let _ = crate::ipc::send_command(&crate::ipc::IpcCommand::Quit);
                     std::process::exit(0);
