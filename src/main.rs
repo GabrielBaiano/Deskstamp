@@ -18,28 +18,38 @@ use wayland_client::{globals::registry_queue_init, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let command = args.get(1).map(|s| s.as_str()).unwrap_or("menu");
+    let command = args.get(1).map(|s| s.as_str());
 
     match command {
-        "menu" | "quick" => {
-            deskstamp::gui::run_quick_menu()?;
+        None => {
+            if send_command(&IpcCommand::Status).is_ok() {
+                println!("Deskstamp is already active with tray icon in the top panel.");
+                println!("Opening Deskstamp Studio settings...");
+                deskstamp::gui::run_gui()?;
+            } else {
+                run_overlay(false)?;
+            }
         }
-        "settings" | "studio" | "gui" => {
+        Some("settings") | Some("studio") | Some("gui") | Some("menu") | Some("quick") => {
             deskstamp::gui::run_gui()?;
         }
-        "toggle" => {
+        Some("quit") | Some("stop") => {
+            let res = send_command(&IpcCommand::Quit)?;
+            println!("{}", res.message);
+        }
+        Some("toggle") => {
             let res = send_command(&IpcCommand::Toggle)?;
             println!("{}", res.message);
         }
-        "reload" => {
+        Some("reload") => {
             let res = send_command(&IpcCommand::Reload)?;
             println!("{}", res.message);
         }
-        "status" => match send_command(&IpcCommand::Status) {
+        Some("status") => match send_command(&IpcCommand::Status) {
             Ok(res) => println!("{}", res.message),
             Err(_) => println!("Deskstamp daemon is not currently running."),
         },
-        "preview" => {
+        Some("preview") => {
             let output_file = args.get(2).map(|s| s.as_str()).unwrap_or("deskstamp_preview.png");
             let cfg = WatermarkConfig::load();
             let renderer = WatermarkRenderer::new(cfg.font_path.as_deref())
@@ -59,16 +69,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pixmap.save_png(output_file)?;
             println!("Preview saved to: {}", output_file);
         }
-        "config" => {
+        Some("config") => {
             let cfg = WatermarkConfig::load();
             println!("{}", serde_json::to_string_pretty(&cfg)?);
         }
-        "test" | "daemon" => {
-            let is_test = command == "test";
+        Some("test") | Some("daemon") => {
+            let is_test = command == Some("test");
             run_overlay(is_test)?;
         }
         _ => {
-            eprintln!("Usage: deskstamp [gui | daemon | test | toggle | reload | status | preview | config]");
+            eprintln!("Usage: deskstamp [settings | daemon | test | toggle | reload | status | preview | config]");
         }
     }
 
