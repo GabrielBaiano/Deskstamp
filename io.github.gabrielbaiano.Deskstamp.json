@@ -1,0 +1,40 @@
+{
+  "app-id": "io.github.gabrielbaiano.Deskstamp",
+  "runtime": "org.freedesktop.Platform",
+  "runtime-version": "24.08",
+  "sdk": "org.freedesktop.Sdk",
+  "sdk-extensions": [
+    "org.freedesktop.Sdk.Extension.rust-stable"
+  ],
+  "command": "deskstamp",
+  "finish-args": [
+    "--socket=wayland",
+    "--share=ipc",
+    "--filesystem=xdg-config/deskstamp:create"
+  ],
+  "build-options": {
+    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "env": {
+      "CARGO_HOME": "/run/build/deskstamp/cargo"
+    }
+  },
+  "modules": [
+    {
+      "name": "deskstamp",
+      "buildsystem": "simple",
+      "build-commands": [
+        "cargo --offline build --release --verbose",
+        "install -Dm755 target/release/deskstamp /app/bin/deskstamp",
+        "install -Dm644 data/io.github.gabrielbaiano.Deskstamp.desktop /app/share/applications/io.github.gabrielbaiano.Deskstamp.desktop",
+        "install -Dm644 data/io.github.gabrielbaiano.Deskstamp.metainfo.xml /app/share/metainfo/io.github.gabrielbaiano.Deskstamp.metainfo.xml",
+        "install -Dm644 data/icons/hicolor/scalable/apps/io.github.gabrielbaiano.Deskstamp.svg /app/share/icons/hicolor/scalable/apps/io.github.gabrielbaiano.Deskstamp.svg"
+      ],
+      "sources": [
+        {
+          "type": "dir",
+          "path": "."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e2430"/>
+      <stop offset="100%" stop-color="#0f131a"/>
+    </linearGradient>
+    <linearGradient id="stampGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#48bfe3"/>
+      <stop offset="100%" stop-color="#7209b7"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded Base Plate -->
+  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bgGrad)" stroke="#303b4d" stroke-width="2"/>
+  
+  <!-- Monitor frame -->
+  <rect x="22" y="24" width="84" height="60" rx="8" fill="#181e29" stroke="#415069" stroke-width="3"/>
+  <path d="M52 84 L46 98 L82 98 L76 84 Z" fill="#303b4d"/>
+  <rect x="42" y="98" width="44" height="4" rx="2" fill="#415069"/>
+
+  <!-- Watermark diagonal grid simulation -->
+  <g opacity="0.85" stroke="url(#stampGrad)" stroke-width="2" stroke-linecap="round" stroke-dasharray="6,4">
+    <line x1="28" y1="72" x2="68" y2="32"/>
+    <line x1="44" y1="76" x2="88" y2="32"/>
+    <line x1="68" y1="76" x2="100" y2="44"/>
+  </g>
+
+  <!-- Central Seal / Stamp Badge -->
+  <circle cx="84" cy="74" r="18" fill="#0f131a" stroke="url(#stampGrad)" stroke-width="3"/>
+  <path d="M78 74 L82 78 L90 70" fill="none" stroke="#48bfe3" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

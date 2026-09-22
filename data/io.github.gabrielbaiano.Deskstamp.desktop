@@ -1,0 +1,20 @@
+[Desktop Entry]
+Name=Deskstamp
+GenericName=Desktop Watermark
+Comment=Display lightweight custom watermarks directly on your desktop
+Exec=deskstamp daemon
+Icon=io.github.gabrielbaiano.Deskstamp
+Terminal=false
+Type=Application
+Categories=Utility;DesktopSettings;AudioVideo;
+Keywords=watermark;desktop;screen;record;stream;cosmic;wayland;
+StartupNotify=false
+Actions=Toggle;Reload;
+
+[Desktop Action Toggle]
+Name=Toggle Watermark
+Exec=deskstamp toggle
+
+[Desktop Action Reload]
+Name=Reload Configuration
+Exec=deskstamp reload
