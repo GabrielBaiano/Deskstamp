@@ -4,3 +4,4 @@ pub mod renderer;
 pub mod overlay;
 pub mod ipc;
 pub mod gui;
+pub mod tray;

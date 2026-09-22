@@ -75,7 +75,7 @@ impl WatermarkRenderer {
                                         let c = Color::from_rgba8(stroke_color[0], stroke_color[1], stroke_color[2], a);
                                         pixmap.fill_rect(
                                             Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
-                                            &Paint { shader: Shader::SolidColor(c), anti_alias: true, ..Default::default() },
+                                            &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
                                             Transform::identity(),
                                             None,
                                         );
@@ -99,7 +99,7 @@ impl WatermarkRenderer {
                             let c = Color::from_rgba8(color_rgba[0], color_rgba[1], color_rgba[2], a);
                             pixmap.fill_rect(
                                 Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
-                                &Paint { shader: Shader::SolidColor(c), anti_alias: true, ..Default::default() },
+                                &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
                                 Transform::identity(),
                                 None,
                             );
@@ -114,7 +114,7 @@ impl WatermarkRenderer {
         (pixmap, tile_w as f32, tile_h as f32)
     }
 
-    /// Renders repeated watermark grid over the output buffer
+    /// Renders repeated watermark grid and vertical lines over the output buffer
     pub fn render_to_buffer(
         &self,
         buffer: &mut [u8],
@@ -134,6 +134,65 @@ impl WatermarkRenderer {
         };
         pixmap.fill(Color::TRANSPARENT);
 
+        let step_x = cfg.spacing_x.max(100.0);
+        let step_y = cfg.spacing_y.max(50.0);
+
+        // 1. Draw Vertical Lines directly into pixel buffer (blazing fast and crash-proof)
+        if cfg.show_vertical_lines && cfg.line_width >= 0.5 {
+            let l_alpha = ((cfg.line_color_rgba[3] as f32 / 255.0) * cfg.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            let shadow_alpha = (l_alpha / 2).max(1);
+            let shadow_color = PremultipliedColorU8::from_rgba(0, 0, 0, shadow_alpha).unwrap_or(PremultipliedColorU8::TRANSPARENT);
+            let pm_color = PremultipliedColorU8::from_rgba(
+                ((cfg.line_color_rgba[0] as u32 * l_alpha as u32) / 255) as u8,
+                ((cfg.line_color_rgba[1] as u32 * l_alpha as u32) / 255) as u8,
+                ((cfg.line_color_rgba[2] as u32 * l_alpha as u32) / 255) as u8,
+                l_alpha,
+            ).unwrap_or(PremultipliedColorU8::TRANSPARENT);
+
+            let pixels = pixmap.pixels_mut();
+            let lw = (cfg.line_width.round() as i32).max(1);
+            let dash_len = 16i32;
+            let gap_len = 10i32;
+            let period = dash_len + gap_len;
+
+            // Draw vertical column lines spaced by step_x
+            let mut col_x = 0i32;
+            while col_x < width as i32 + 50 {
+                for y in 0..height as i32 {
+                    if !cfg.line_dashed || (y % period < dash_len) {
+                        // Outline border for high contrast on light backgrounds
+                        let sl = col_x - lw / 2 - 1;
+                        let sr = col_x - lw / 2 + lw;
+                        if sl >= 0 && sl < width as i32 {
+                            let idx = (y * width as i32 + sl) as usize;
+                            if idx < pixels.len() {
+                                pixels[idx] = shadow_color;
+                            }
+                        }
+                        if sr >= 0 && sr < width as i32 {
+                            let idx = (y * width as i32 + sr) as usize;
+                            if idx < pixels.len() {
+                                pixels[idx] = shadow_color;
+                            }
+                        }
+
+                        // Core line
+                        for offset in 0..lw {
+                            let px = col_x - lw / 2 + offset;
+                            if px >= 0 && px < width as i32 {
+                                let idx = (y * width as i32 + px) as usize;
+                                if idx < pixels.len() {
+                                    pixels[idx] = pm_color;
+                                }
+                            }
+                        }
+                    }
+                }
+                col_x += step_x as i32;
+            }
+        }
+
+        // 2. Draw Watermark Text Tiles
         let resolved_text = resolve_tokens(&cfg.text);
         let has_stroke = cfg.stroke_width > 0.1;
         let (tile_pixmap, tile_w, tile_h) = self.render_text_tile(
@@ -150,26 +209,40 @@ impl WatermarkRenderer {
 
         let diag = ((width * width + height * height) as f32).sqrt();
 
-        // Staggered grid iteration
-        let step_x = cfg.spacing_x.max(80.0);
-        let step_y = cfg.spacing_y.max(40.0);
-
-        let mut row_idx = 0;
-        let mut y = -diag * 0.5;
-        while y < height as f32 + diag * 0.5 {
-            let row_offset = if row_idx % 2 == 1 { cfg.stagger_offset } else { 0.0 };
-            let mut x = -diag * 0.5 + row_offset;
-
-            while x < width as f32 + diag * 0.5 {
-                let transform = Transform::from_translate(x, y)
-                    .post_rotate(cfg.angle_deg)
-                    .post_translate(-tile_w * 0.5, -tile_h * 0.5);
-
-                pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
+        // If angle is 0, align directly with the vertical columns
+        if cfg.angle_deg.abs() < 0.1 {
+            let mut x = (step_x * 0.5) as f32;
+            let mut col = 0;
+            while x < width as f32 + 100.0 {
+                let col_offset = if col % 2 == 1 { cfg.stagger_offset } else { 0.0 };
+                let mut y = 40.0 + col_offset;
+                while y < height as f32 + 100.0 {
+                    let transform = Transform::from_translate(x - tile_w * 0.5, y - tile_h * 0.5);
+                    pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
+                    y += step_y;
+                }
                 x += step_x;
+                col += 1;
             }
-            y += step_y;
-            row_idx += 1;
+        } else {
+            // Diagonal grid iteration
+            let mut row_idx = 0;
+            let mut y = -diag * 0.3;
+            while y < height as f32 + diag * 0.3 {
+                let row_offset = if row_idx % 2 == 1 { cfg.stagger_offset } else { 0.0 };
+                let mut x = -diag * 0.3 + row_offset;
+
+                while x < width as f32 + diag * 0.3 {
+                    let transform = Transform::from_translate(x, y)
+                        .post_rotate(cfg.angle_deg)
+                        .post_translate(-tile_w * 0.5, -tile_h * 0.5);
+
+                    pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
+                    x += step_x;
+                }
+                y += step_y;
+                row_idx += 1;
+            }
         }
     }
 }

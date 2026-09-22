@@ -33,6 +33,18 @@ pub struct WatermarkConfig {
     #[serde(default = "default_stroke_color")]
     pub stroke_color_rgba: [u8; 4],
 
+    #[serde(default = "default_show_lines")]
+    pub show_vertical_lines: bool,
+
+    #[serde(default = "default_line_width")]
+    pub line_width: f32,
+
+    #[serde(default = "default_line_dashed")]
+    pub line_dashed: bool,
+
+    #[serde(default = "default_line_color")]
+    pub line_color_rgba: [u8; 4],
+
     #[serde(default = "default_font_path")]
     pub font_path: Option<String>,
 
@@ -46,15 +58,19 @@ pub struct WatermarkConfig {
 fn default_text() -> String {
     "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string()
 }
-fn default_font_size() -> f32 { 22.0 }
-fn default_angle() -> f32 { -25.0 }
-fn default_opacity() -> f32 { 0.18 }
+fn default_font_size() -> f32 { 18.0 }
+fn default_angle() -> f32 { 0.0 }
+fn default_opacity() -> f32 { 0.22 }
 fn default_color() -> [u8; 4] { [255, 255, 255, 255] }
-fn default_spacing_x() -> f32 { 420.0 }
-fn default_spacing_y() -> f32 { 220.0 }
-fn default_stagger() -> f32 { 210.0 }
+fn default_spacing_x() -> f32 { 480.0 }
+fn default_spacing_y() -> f32 { 160.0 }
+fn default_stagger() -> f32 { 80.0 }
 fn default_stroke_width() -> f32 { 1.0 }
 fn default_stroke_color() -> [u8; 4] { [0, 0, 0, 180] }
+fn default_show_lines() -> bool { true }
+fn default_line_width() -> f32 { 1.5 }
+fn default_line_dashed() -> bool { true }
+fn default_line_color() -> [u8; 4] { [255, 255, 255, 200] }
 fn default_font_path() -> Option<String> { None }
 fn default_active() -> bool { true }
 fn default_update_interval() -> u64 { 1 }
@@ -72,6 +88,10 @@ impl Default for WatermarkConfig {
             stagger_offset: default_stagger(),
             stroke_width: default_stroke_width(),
             stroke_color_rgba: default_stroke_color(),
+            show_vertical_lines: default_show_lines(),
+            line_width: default_line_width(),
+            line_dashed: default_line_dashed(),
+            line_color_rgba: default_line_color(),
             font_path: default_font_path(),
             active: default_active(),
             update_interval_secs: default_update_interval(),
@@ -92,7 +112,9 @@ impl WatermarkConfig {
                 return cfg;
             }
         }
-        Self::default()
+        let def = Self::default();
+        let _ = def.save();
+        def
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -101,7 +123,9 @@ impl WatermarkConfig {
             std::fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, json)?;
+        let tmp_path = path.with_extension("tmp");
+        std::fs::write(&tmp_path, json)?;
+        std::fs::rename(tmp_path, path)?;
         Ok(())
     }
 }

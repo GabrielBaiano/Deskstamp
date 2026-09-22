@@ -1,5 +1,5 @@
 use crate::config::WatermarkConfig;
-use crate::ipc::{get_socket_path, send_command, IpcCommand};
+use crate::ipc::{send_command, IpcCommand};
 use eframe::egui;
 
 pub struct SettingsApp {
@@ -14,50 +14,83 @@ impl SettingsApp {
         let config = WatermarkConfig::load();
         let daemon_running = send_command(&IpcCommand::Status).is_ok();
 
-        Self {
+        let mut app = Self {
             config,
             daemon_running,
-            status_msg: if daemon_running {
-                "Overlay daemon is active and running.".to_string()
-            } else {
-                "Daemon is offline. Click 'Start Overlay' below.".to_string()
-            },
+            status_msg: String::new(),
             last_check_frame: 0,
+        };
+
+        if !app.daemon_running {
+            app.start_daemon_process();
+        } else {
+            app.status_msg = "Overlay daemon is active and running.".to_string();
         }
+
+        app
     }
 
     fn notify_daemon_reload(&mut self) {
         let _ = self.config.save();
         if self.daemon_running {
             let _ = send_command(&IpcCommand::Reload);
+        } else {
+            self.start_daemon_process();
         }
     }
 
+    fn restart_daemon(&mut self) {
+        let _ = send_command(&IpcCommand::Quit);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        self.start_daemon_process();
+    }
+
     fn start_daemon_process(&mut self) {
+        if send_command(&IpcCommand::Status).is_ok() {
+            self.daemon_running = true;
+            let _ = send_command(&IpcCommand::Reload);
+            self.status_msg = "Connected to running overlay daemon.".to_string();
+            return;
+        }
+
         if let Ok(exe) = std::env::current_exe() {
-            let _ = std::process::Command::new(exe)
+            let res = std::process::Command::new(exe)
                 .arg("daemon")
                 .spawn();
-            std::thread::sleep(std::time::Duration::from_millis(200));
-            self.daemon_running = send_command(&IpcCommand::Status).is_ok();
-            self.status_msg = if self.daemon_running {
-                "Overlay daemon started successfully.".to_string()
-            } else {
-                "Failed to start overlay daemon.".to_string()
-            };
+
+            if res.is_ok() {
+                for _ in 0..15 {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    if send_command(&IpcCommand::Status).is_ok() {
+                        self.daemon_running = true;
+                        self.status_msg = "Overlay daemon started and displaying live.".to_string();
+                        return;
+                    }
+                }
+            }
+            self.daemon_running = false;
+            self.status_msg = "Failed to connect to overlay daemon.".to_string();
         }
     }
 }
 
 impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Periodic check for daemon status
         self.last_check_frame += 1;
         if self.last_check_frame % 60 == 0 {
             self.daemon_running = send_command(&IpcCommand::Status).is_ok();
         }
 
         let mut changed = false;
+
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgb(22, 25, 32);
+        visuals.window_fill = egui::Color32::from_rgb(22, 25, 32);
+        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
+        visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+        ui.ctx().set_visuals(visuals);
 
         ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
 
@@ -66,15 +99,18 @@ impl eframe::App for SettingsApp {
             ui.heading("🛡️ Deskstamp Settings");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.daemon_running {
-                    ui.colored_label(egui::Color32::from_rgb(80, 200, 120), "● Daemon Active");
-                    if ui.button("Stop Daemon").clicked() {
+                    ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Live on Screen");
+                    if ui.button("⏹ Stop").clicked() {
                         let _ = send_command(&IpcCommand::Quit);
                         self.daemon_running = false;
-                        self.status_msg = "Daemon stopped.".to_string();
+                        self.status_msg = "Overlay daemon stopped.".to_string();
+                    }
+                    if ui.button("🔄 Restart").clicked() {
+                        self.restart_daemon();
                     }
                 } else {
-                    ui.colored_label(egui::Color32::from_rgb(200, 80, 80), "○ Daemon Inactive");
-                    if ui.button("▶ Start Daemon").clicked() {
+                    ui.colored_label(egui::Color32::from_rgb(230, 90, 90), "○ Stopped");
+                    if ui.button("▶ Start Overlay").clicked() {
                         self.start_daemon_process();
                     }
                 }
@@ -86,7 +122,7 @@ impl eframe::App for SettingsApp {
         // Active Toggle
         ui.horizontal(|ui| {
             let prev_active = self.config.active;
-            let label = if self.config.active { " Watermark: ENABLED " } else { " Watermark: DISABLED " };
+            let label = if self.config.active { " Watermark Overlay: ENABLED " } else { " Watermark Overlay: DISABLED " };
             ui.toggle_value(&mut self.config.active, label);
             if self.config.active != prev_active {
                 changed = true;
@@ -95,15 +131,209 @@ impl eframe::App for SettingsApp {
                 }
             }
 
-            ui.label(format!("Socket: {:?}", get_socket_path()));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(egui::RichText::new("Pop!_OS COSMIC Tray active").small().weak());
+            });
         });
 
         ui.separator();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            // Text Configuration
+            // Presets
             ui.group(|ui| {
-                ui.label(egui::RichText::new("Watermark Template").strong());
+                ui.label(egui::RichText::new("⚡ Quick Presets").strong());
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("🛡️ Column Guard (Lines + Horizontal)").clicked() {
+                        self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                        self.config.opacity = 0.22;
+                        self.config.angle_deg = 0.0;
+                        self.config.font_size = 18.0;
+                        self.config.show_vertical_lines = true;
+                        self.config.line_width = 1.5;
+                        self.config.line_dashed = true;
+                        self.config.line_color_rgba = [255, 255, 255, 200];
+                        self.config.spacing_x = 480.0;
+                        self.config.spacing_y = 160.0;
+                        self.config.stagger_offset = 80.0;
+                        changed = true;
+                    }
+                    if ui.button("🏢 Security Grid (Lines + Diagonal)").clicked() {
+                        self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                        self.config.opacity = 0.22;
+                        self.config.angle_deg = -25.0;
+                        self.config.font_size = 18.0;
+                        self.config.show_vertical_lines = true;
+                        self.config.line_width = 1.5;
+                        self.config.line_dashed = true;
+                        self.config.line_color_rgba = [255, 255, 255, 200];
+                        self.config.spacing_x = 380.0;
+                        self.config.spacing_y = 200.0;
+                        self.config.stagger_offset = 100.0;
+                        changed = true;
+                    }
+                    if ui.button("🔒 High-Density Matrix").clicked() {
+                        self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
+                        self.config.opacity = 0.28;
+                        self.config.angle_deg = -30.0;
+                        self.config.font_size = 16.0;
+                        self.config.show_vertical_lines = true;
+                        self.config.line_width = 1.0;
+                        self.config.line_dashed = false;
+                        self.config.line_color_rgba = [255, 255, 255, 180];
+                        self.config.spacing_x = 280.0;
+                        self.config.spacing_y = 140.0;
+                        self.config.stagger_offset = 70.0;
+                        changed = true;
+                    }
+                    if ui.button("🎥 Clean Stream (No Lines)").clicked() {
+                        self.config.text = "LIVE STREAM • @{user}".to_string();
+                        self.config.opacity = 0.18;
+                        self.config.angle_deg = -20.0;
+                        self.config.font_size = 24.0;
+                        self.config.show_vertical_lines = false;
+                        self.config.spacing_x = 450.0;
+                        self.config.spacing_y = 250.0;
+                        changed = true;
+                    }
+                });
+            });
+
+            // Mini Interactive Screen Preview
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("🖥️ Live Preview").strong());
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 120.0), egui::Sense::hover());
+                let painter = ui.painter_at(rect);
+
+                // Preview monitor wallpaper
+                painter.rect_filled(rect, egui::CornerRadius::same(6), egui::Color32::from_rgb(26, 29, 36));
+
+                if self.config.active {
+                    let w = rect.width();
+                    let _h = rect.height();
+                    let preview_scale = w / 1920.0;
+                    let step_x = (self.config.spacing_x * preview_scale).max(30.0);
+                    let step_y = (self.config.spacing_y * preview_scale).max(20.0);
+
+                    // 1. Scaled vertical lines
+                    if self.config.show_vertical_lines {
+                        let l_alpha = ((self.config.line_color_rgba[3] as f32 / 255.0) * self.config.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+                        let line_color = egui::Color32::from_rgba_premultiplied(
+                            self.config.line_color_rgba[0],
+                            self.config.line_color_rgba[1],
+                            self.config.line_color_rgba[2],
+                            l_alpha,
+                        );
+
+                        let mut cx = rect.left();
+                        while cx < rect.right() + 10.0 {
+                            if self.config.line_dashed {
+                                let mut cy = rect.top();
+                                while cy < rect.bottom() {
+                                    let dash_end = (cy + 6.0).min(rect.bottom());
+                                    painter.line_segment([egui::pos2(cx, cy), egui::pos2(cx, dash_end)], egui::Stroke::new(self.config.line_width.max(1.0), line_color));
+                                    cy += 11.0;
+                                }
+                            } else {
+                                painter.line_segment([egui::pos2(cx, rect.top()), egui::pos2(cx, rect.bottom())], egui::Stroke::new(self.config.line_width.max(1.0), line_color));
+                            }
+                            cx += step_x;
+                        }
+                    }
+
+                    // 2. Scaled preview text
+                    let t_alpha = (self.config.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+                    let text_color = egui::Color32::from_rgba_unmultiplied(
+                        self.config.color_rgba[0],
+                        self.config.color_rgba[1],
+                        self.config.color_rgba[2],
+                        t_alpha,
+                    );
+                    let font_id = egui::FontId::proportional((self.config.font_size * preview_scale * 1.6).max(8.0));
+                    let sample_text = if self.config.text.len() > 22 {
+                        &self.config.text[..22]
+                    } else {
+                        &self.config.text
+                    };
+
+                    let mut cy = rect.top() + 14.0;
+                    let mut row = 0;
+                    while cy < rect.bottom() {
+                        let stagger = if row % 2 == 1 { self.config.stagger_offset * preview_scale } else { 0.0 };
+                        let mut cx = rect.left() + step_x * 0.5 + stagger;
+                        while cx < rect.right() + 40.0 {
+                            painter.text(
+                                egui::pos2(cx, cy),
+                                egui::Align2::CENTER_CENTER,
+                                sample_text,
+                                font_id.clone(),
+                                text_color,
+                            );
+                            cx += step_x;
+                        }
+                        cy += step_y;
+                        row += 1;
+                    }
+                } else {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Watermark Overlay Disabled",
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::from_gray(120),
+                    );
+                }
+            });
+
+            // Vertical Lines Settings
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("📏 Vertical Lines").strong());
+
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut self.config.show_vertical_lines, "Show Vertical Column Lines").changed() {
+                        changed = true;
+                    }
+                    if self.config.show_vertical_lines {
+                        if ui.checkbox(&mut self.config.line_dashed, "Dashed Pattern").changed() {
+                            changed = true;
+                        }
+                    }
+                });
+
+                if self.config.show_vertical_lines {
+                    ui.horizontal(|ui| {
+                        ui.label("Line Width:");
+                        if ui.add(egui::Slider::new(&mut self.config.line_width, 0.5..=6.0).suffix(" px")).changed() {
+                            changed = true;
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Line Color:");
+                        let mut lc = [
+                            self.config.line_color_rgba[0] as f32 / 255.0,
+                            self.config.line_color_rgba[1] as f32 / 255.0,
+                            self.config.line_color_rgba[2] as f32 / 255.0,
+                        ];
+                        if ui.color_edit_button_rgb(&mut lc).changed() {
+                            self.config.line_color_rgba[0] = (lc[0] * 255.0) as u8;
+                            self.config.line_color_rgba[1] = (lc[1] * 255.0) as u8;
+                            self.config.line_color_rgba[2] = (lc[2] * 255.0) as u8;
+                            changed = true;
+                        }
+
+                        ui.label("Alpha:");
+                        let mut line_a = self.config.line_color_rgba[3];
+                        if ui.add(egui::Slider::new(&mut line_a, 10..=255)).changed() {
+                            self.config.line_color_rgba[3] = line_a;
+                            changed = true;
+                        }
+                    });
+                }
+            });
+
+            // Text Template & Tokens
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("✍️ Text Template").strong());
                 ui.horizontal(|ui| {
                     if ui.text_edit_singleline(&mut self.config.text).changed() {
                         changed = true;
@@ -111,7 +341,7 @@ impl eframe::App for SettingsApp {
                 });
 
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("Insert dynamic token:");
+                    ui.label("Quick tokens:");
                     if ui.button("+ User").clicked() {
                         self.config.text.push_str(" {user}");
                         changed = true;
@@ -131,16 +361,20 @@ impl eframe::App for SettingsApp {
                 });
             });
 
-            // Geometry and Matrix Transformation Sliders
+            // Matrix Transformation & Sliders
             ui.group(|ui| {
-                ui.label(egui::RichText::new("Layout & Grid Transformation").strong());
+                ui.label(egui::RichText::new("📐 Geometry & Transformations").strong());
 
                 ui.horizontal(|ui| {
                     ui.label("Rotation Angle:");
                     if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
                         changed = true;
                     }
-                    if ui.button("Reset Angle").clicked() {
+                    if ui.button("0° (Vertical)").clicked() {
+                        self.config.angle_deg = 0.0;
+                        changed = true;
+                    }
+                    if ui.button("-25° (Diagonal)").clicked() {
                         self.config.angle_deg = -25.0;
                         changed = true;
                     }
@@ -157,20 +391,20 @@ impl eframe::App for SettingsApp {
 
                 ui.horizontal(|ui| {
                     ui.label("Font Size:");
-                    if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=72.0).suffix(" px")).changed() {
+                    if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=64.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("Spacing X:");
+                    ui.label("Column Spacing (X):");
                     if ui.add(egui::Slider::new(&mut self.config.spacing_x, 150.0..=1000.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("Spacing Y:");
+                    ui.label("Row Spacing (Y):");
                     if ui.add(egui::Slider::new(&mut self.config.spacing_y, 80.0..=600.0).suffix(" px")).changed() {
                         changed = true;
                     }
@@ -178,22 +412,22 @@ impl eframe::App for SettingsApp {
 
                 ui.horizontal(|ui| {
                     ui.label("Stagger / Offset:");
-                    if ui.add(egui::Slider::new(&mut self.config.stagger_offset, 0.0..=500.0).suffix(" px")).changed() {
+                    if ui.add(egui::Slider::new(&mut self.config.stagger_offset, 0.0..=400.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("Stroke Width:");
-                    if ui.add(egui::Slider::new(&mut self.config.stroke_width, 0.0..=5.0).suffix(" px")).changed() {
+                    ui.label("Stroke Outline:");
+                    if ui.add(egui::Slider::new(&mut self.config.stroke_width, 0.0..=4.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
             });
 
-            // Colors
+            // Text & Stroke Colors
             ui.group(|ui| {
-                ui.label(egui::RichText::new("Colors & Contrast").strong());
+                ui.label(egui::RichText::new("🎨 Text Colors").strong());
                 ui.horizontal(|ui| {
                     ui.label("Text Color:");
                     let mut c = [
@@ -225,40 +459,6 @@ impl eframe::App for SettingsApp {
                 });
             });
 
-            // Presets
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("Presets").strong());
-                ui.horizontal(|ui| {
-                    if ui.button("Confidential NDA").clicked() {
-                        self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                        self.config.opacity = 0.18;
-                        self.config.angle_deg = -25.0;
-                        self.config.font_size = 22.0;
-                        self.config.spacing_x = 420.0;
-                        self.config.spacing_y = 220.0;
-                        changed = true;
-                    }
-                    if ui.button("Live Streaming").clicked() {
-                        self.config.text = "LIVE STREAM • @{user}".to_string();
-                        self.config.opacity = 0.15;
-                        self.config.angle_deg = -20.0;
-                        self.config.font_size = 26.0;
-                        self.config.spacing_x = 500.0;
-                        self.config.spacing_y = 280.0;
-                        changed = true;
-                    }
-                    if ui.button("Classroom / Teaching").clicked() {
-                        self.config.text = "EDUCATIONAL COPY • DO NOT DISTRIBUTE".to_string();
-                        self.config.opacity = 0.22;
-                        self.config.angle_deg = -30.0;
-                        self.config.font_size = 24.0;
-                        self.config.spacing_x = 450.0;
-                        self.config.spacing_y = 240.0;
-                        changed = true;
-                    }
-                });
-            });
-
             ui.add_space(8.0);
             ui.label(egui::RichText::new(&self.status_msg).italics());
         });
@@ -272,8 +472,8 @@ impl eframe::App for SettingsApp {
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([620.0, 720.0])
-            .with_min_inner_size([500.0, 500.0])
+            .with_inner_size([620.0, 760.0])
+            .with_min_inner_size([500.0, 550.0])
             .with_title("Deskstamp - Settings"),
         ..Default::default()
     };

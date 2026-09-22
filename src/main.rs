@@ -2,6 +2,7 @@ use deskstamp::config::WatermarkConfig;
 use deskstamp::ipc::{bind_listener, get_socket_path, send_command, IpcCommand, IpcResponse};
 use deskstamp::overlay::CosmarkApp;
 use deskstamp::renderer::WatermarkRenderer;
+use deskstamp::tray::spawn_tray;
 use smithay_client_toolkit::reexports::calloop::{
     channel::{channel, Channel, Sender},
     timer::{TimeoutAction, Timer},
@@ -12,7 +13,7 @@ use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tiny_skia::{Color, Pixmap};
+use tiny_skia::{Color, Pixmap, PixmapMut, PixmapPaint, Transform};
 use wayland_client::{globals::registry_queue_init, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,10 +45,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let width = 1920;
             let height = 1080;
             let mut pixmap = Pixmap::new(width, height).unwrap();
-            // Subtle dark slate background for preview visibility
-            pixmap.fill(Color::from_rgba8(30, 32, 36, 255));
+            // Dark wallpaper tone for realistic preview
+            pixmap.fill(Color::from_rgba8(26, 29, 36, 255));
 
-            renderer.render_to_buffer(pixmap.data_mut(), width, height, width * 4, &cfg);
+            let mut temp_buf = vec![0u8; (width * height * 4) as usize];
+            renderer.render_to_buffer(&mut temp_buf, width, height, width * 4, &cfg);
+
+            let temp_pixmap = PixmapMut::from_bytes(&mut temp_buf, width, height).unwrap();
+            pixmap.draw_pixmap(0, 0, temp_pixmap.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
             pixmap.save_png(output_file)?;
             println!("Preview saved to: {}", output_file);
         }
@@ -67,8 +72,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+struct SocketGuard;
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(get_socket_path());
+    }
+}
+
 fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
-    println!("Connecting to Wayland compositor...");
+    // If another daemon is already responding to IPC, do not spawn a duplicate overlay
+    if !is_test && send_command(&IpcCommand::Status).is_ok() {
+        println!("Deskstamp daemon is already active. Reloading config...");
+        let _ = send_command(&IpcCommand::Reload);
+        return Ok(());
+    }
+
+    let _socket_guard = SocketGuard;
+
     let conn = Connection::connect_to_env()?;
     let (globals, event_queue) = registry_queue_init(&conn)?;
     let qh = event_queue.handle();
@@ -79,22 +99,29 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = CosmarkApp::new(&globals, &qh)?;
 
+    // Start System Tray in background
+    let active_atomic = Arc::new(AtomicBool::new(app.config.active));
+    if !is_test {
+        spawn_tray(active_atomic.clone());
+    }
+
     // Channel for IPC / Control commands
     let (tx, rx): (Sender<IpcCommand>, Channel<IpcCommand>) = channel();
     let qh_clone = qh.clone();
+    let active_clone = active_atomic.clone();
 
     loop_handle.insert_source(rx, move |event, _, app: &mut CosmarkApp| {
         match event {
             smithay_client_toolkit::reexports::calloop::channel::Event::Msg(cmd) => match cmd {
                 IpcCommand::Toggle => {
                     app.config.active = !app.config.active;
+                    active_clone.store(app.config.active, Ordering::Relaxed);
                     let _ = app.config.save();
-                    println!("Toggled watermark: active = {}", app.config.active);
                     app.draw(&qh_clone);
                 }
                 IpcCommand::Reload => {
                     app.config = WatermarkConfig::load();
-                    println!("Reloaded configuration from disk.");
+                    active_clone.store(app.config.active, Ordering::Relaxed);
                     app.draw(&qh_clone);
                 }
                 IpcCommand::SetOpacity { value } => {
@@ -133,22 +160,22 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(40));
             }
         }
     });
 
     // Dynamic timer if clock tokens are present
-    let has_dynamic_time = app.config.text.contains("{time");
     let qh_timer = qh.clone();
     let timer = Timer::from_duration(Duration::from_secs(1));
 
     loop_handle.insert_source(timer, move |_, _, app: &mut CosmarkApp| {
+        let has_dynamic_time = app.config.text.contains("{time");
         if app.config.active && has_dynamic_time {
             app.draw(&qh_timer);
             TimeoutAction::ToDuration(Duration::from_secs(app.config.update_interval_secs.max(1)))
         } else {
-            TimeoutAction::Drop
+            TimeoutAction::ToDuration(Duration::from_secs(2))
         }
     })?;
 
@@ -166,7 +193,7 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     while !app.exit {
-        event_loop.dispatch(Some(Duration::from_millis(100)), &mut app)?;
+        event_loop.dispatch(Some(Duration::from_millis(80)), &mut app)?;
     }
 
     running.store(false, Ordering::Relaxed);
