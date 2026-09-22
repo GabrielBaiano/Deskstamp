@@ -58,6 +58,15 @@ impl ksni::Tray for DeskstampTray {
                 }),
                 ..Default::default()
             }.into(),
+            StandardItem {
+                label: "Deskstamp Studio settings...".into(),
+                activate: Box::new(|_| {
+                    if let Ok(exe) = std::env::current_exe() {
+                        let _ = std::process::Command::new(exe).arg("settings").spawn();
+                    }
+                }),
+                ..Default::default()
+            }.into(),
             MenuItem::Separator,
             StandardItem {
                 label: if self.active.load(Ordering::Relaxed) {

@@ -45,6 +45,36 @@ pub struct WatermarkConfig {
     #[serde(default = "default_line_color")]
     pub line_color_rgba: [u8; 4],
 
+    #[serde(default = "default_show_diagonal")]
+    pub show_diagonal_lines: bool,
+
+    #[serde(default = "default_diagonal_angle")]
+    pub diagonal_line_angle: f32,
+
+    #[serde(default = "default_diagonal_width")]
+    pub diagonal_line_width: f32,
+
+    #[serde(default = "default_diagonal_dashed")]
+    pub diagonal_line_dashed: bool,
+
+    #[serde(default = "default_diagonal_color")]
+    pub diagonal_line_color_rgba: [u8; 4],
+
+    #[serde(default = "default_diagonal_spacing")]
+    pub diagonal_line_spacing: f32,
+
+    #[serde(default = "default_mode")]
+    pub mode: String, // "text", "image", "both"
+
+    #[serde(default = "default_image_path")]
+    pub image_path: Option<String>,
+
+    #[serde(default = "default_image_scale")]
+    pub image_scale: f32,
+
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
+
     #[serde(default = "default_font_path")]
     pub font_path: Option<String>,
 
@@ -71,6 +101,16 @@ fn default_show_lines() -> bool { true }
 fn default_line_width() -> f32 { 1.5 }
 fn default_line_dashed() -> bool { true }
 fn default_line_color() -> [u8; 4] { [255, 255, 255, 200] }
+fn default_show_diagonal() -> bool { false }
+fn default_diagonal_angle() -> f32 { -45.0 }
+fn default_diagonal_width() -> f32 { 1.5 }
+fn default_diagonal_dashed() -> bool { true }
+fn default_diagonal_color() -> [u8; 4] { [255, 255, 255, 180] }
+fn default_diagonal_spacing() -> f32 { 240.0 }
+fn default_mode() -> String { "text".to_string() }
+fn default_image_path() -> Option<String> { None }
+fn default_image_scale() -> f32 { 1.0 }
+fn default_font_family() -> String { "Liberation Sans".to_string() }
 fn default_font_path() -> Option<String> { None }
 fn default_active() -> bool { true }
 fn default_update_interval() -> u64 { 1 }
@@ -92,6 +132,16 @@ impl Default for WatermarkConfig {
             line_width: default_line_width(),
             line_dashed: default_line_dashed(),
             line_color_rgba: default_line_color(),
+            show_diagonal_lines: default_show_diagonal(),
+            diagonal_line_angle: default_diagonal_angle(),
+            diagonal_line_width: default_diagonal_width(),
+            diagonal_line_dashed: default_diagonal_dashed(),
+            diagonal_line_color_rgba: default_diagonal_color(),
+            diagonal_line_spacing: default_diagonal_spacing(),
+            mode: default_mode(),
+            image_path: default_image_path(),
+            image_scale: default_image_scale(),
+            font_family: default_font_family(),
             font_path: default_font_path(),
             active: default_active(),
             update_interval_secs: default_update_interval(),

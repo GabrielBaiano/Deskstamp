@@ -28,6 +28,80 @@ impl WatermarkRenderer {
         Err("No suitable TTF font found on system".to_string())
     }
 
+    pub fn update_font(&mut self, custom_font: Option<&str>, font_family: &str) {
+        let mut candidates = Vec::new();
+        if let Some(p) = custom_font {
+            candidates.push(p.to_string());
+        }
+        match font_family.to_lowercase().as_str() {
+            "roboto" => {
+                candidates.push("/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Regular.ttf".to_string());
+            }
+            "roboto slab" => {
+                candidates.push("/usr/share/fonts/truetype/roboto-slab/RobotoSlab-Bold.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/roboto-slab/RobotoSlab-Regular.ttf".to_string());
+            }
+            "monospace" | "liberation mono" => {
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf".to_string());
+            }
+            "liberation serif" => {
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf".to_string());
+            }
+            _ => {
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf".to_string());
+            }
+        }
+        candidates.push("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf".to_string());
+
+        for path in candidates {
+            if let Ok(data) = std::fs::read(&path) {
+                if let Ok(f) = Font::from_bytes(data, FontSettings::default()) {
+                    self.font = f;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Loads or scales a logo / image tile
+    fn load_image_tile(&self, path: Option<&str>, scale: f32) -> Pixmap {
+        let base_pix = if let Some(p) = path {
+            std::fs::read(p)
+                .ok()
+                .and_then(|data| Pixmap::decode_png(&data).ok())
+                .unwrap_or_else(|| {
+                    static LOGO: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
+                    Pixmap::decode_png(LOGO).unwrap()
+                })
+        } else {
+            static LOGO: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
+            Pixmap::decode_png(LOGO).unwrap()
+        };
+
+        let s = scale.clamp(0.2, 5.0);
+        if (s - 1.0).abs() > 0.05 {
+            let nw = ((base_pix.width() as f32 * s).round() as u32).max(12);
+            let nh = ((base_pix.height() as f32 * s).round() as u32).max(12);
+            let mut scaled = Pixmap::new(nw, nh).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
+            scaled.draw_pixmap(
+                0,
+                0,
+                base_pix.as_ref(),
+                &PixmapPaint::default(),
+                Transform::from_scale(s, s),
+                None,
+            );
+            scaled
+        } else {
+            base_pix
+        }
+    }
+
     /// Renders text glyphs onto an RGBA Pixmap tile
     fn render_text_tile(&self, text: &str, size: f32, color_rgba: [u8; 4], stroke_color: [u8; 4], stroke: bool) -> (Pixmap, f32, f32) {
         let mut glyphs = Vec::new();
@@ -192,16 +266,102 @@ impl WatermarkRenderer {
             }
         }
 
-        // 2. Draw Watermark Text Tiles
+        // 2. Draw Diagonal Lines
+        if cfg.show_diagonal_lines && cfg.diagonal_line_width >= 0.5 {
+            let l_alpha = ((cfg.diagonal_line_color_rgba[3] as f32 / 255.0) * cfg.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            if l_alpha > 0 {
+                let color = Color::from_rgba8(
+                    cfg.diagonal_line_color_rgba[0],
+                    cfg.diagonal_line_color_rgba[1],
+                    cfg.diagonal_line_color_rgba[2],
+                    l_alpha,
+                );
+                let stroke_color = Color::from_rgba8(0, 0, 0, (l_alpha / 2).max(1));
+                let step = cfg.diagonal_line_spacing.max(40.0);
+                let diag = ((width * width + height * height) as f32).sqrt();
+
+                let mut pb = PathBuilder::new();
+                let mut x = -diag;
+                while x < diag + width as f32 {
+                    pb.move_to(x, -diag);
+                    pb.line_to(x, height as f32 + diag);
+                    x += step;
+                }
+
+                if let Some(path) = pb.finish() {
+                    let transform = Transform::from_rotate_at(
+                        cfg.diagonal_line_angle,
+                        width as f32 * 0.5,
+                        height as f32 * 0.5,
+                    );
+                    let dash = if cfg.diagonal_line_dashed {
+                        StrokeDash::new(vec![16.0, 10.0], 0.0)
+                    } else {
+                        None
+                    };
+                    let stroke = Stroke {
+                        width: cfg.diagonal_line_width.max(0.5),
+                        dash,
+                        ..Default::default()
+                    };
+
+                    let outline_dash = if cfg.diagonal_line_dashed {
+                        StrokeDash::new(vec![16.0, 10.0], 0.0)
+                    } else {
+                        None
+                    };
+                    let outline_stroke = Stroke {
+                        width: cfg.diagonal_line_width.max(0.5) + 1.2,
+                        dash: outline_dash,
+                        ..Default::default()
+                    };
+                    pixmap.stroke_path(&path, &Paint { shader: Shader::SolidColor(stroke_color), ..Default::default() }, &outline_stroke, transform, None);
+                    pixmap.stroke_path(&path, &Paint { shader: Shader::SolidColor(color), ..Default::default() }, &stroke, transform, None);
+                }
+            }
+        }
+
+        // 3. Prepare Tile (Text, Image, or Both)
         let resolved_text = resolve_tokens(&cfg.text);
         let has_stroke = cfg.stroke_width > 0.1;
-        let (tile_pixmap, tile_w, tile_h) = self.render_text_tile(
-            &resolved_text,
-            cfg.font_size,
-            cfg.color_rgba,
-            cfg.stroke_color_rgba,
-            has_stroke,
-        );
+
+        let (tile_pixmap, tile_w, tile_h) = if cfg.mode == "image" {
+            let img = self.load_image_tile(cfg.image_path.as_deref(), cfg.image_scale);
+            let w = img.width() as f32;
+            let h = img.height() as f32;
+            (img, w, h)
+        } else if cfg.mode == "both" {
+            let img = self.load_image_tile(cfg.image_path.as_deref(), cfg.image_scale);
+            let (txt_tile, txt_w, txt_h) = self.render_text_tile(
+                &resolved_text,
+                cfg.font_size,
+                cfg.color_rgba,
+                cfg.stroke_color_rgba,
+                has_stroke,
+            );
+            let combined_w = (img.width() as f32).max(txt_w).ceil() as u32;
+            let combined_h = (img.height() as f32 + txt_h + 8.0).ceil() as u32;
+            let mut comb = Pixmap::new(combined_w.max(1), combined_h.max(1)).unwrap();
+            comb.fill(Color::TRANSPARENT);
+
+            let img_x = (combined_w as f32 - img.width() as f32) * 0.5;
+            comb.draw_pixmap(img_x as i32, 0, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+
+            let txt_x = (combined_w as f32 - txt_w) * 0.5;
+            let txt_y = img.height() as f32 + 8.0;
+            comb.draw_pixmap(txt_x as i32, txt_y as i32, txt_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+
+            (comb, combined_w as f32, combined_h as f32)
+        } else {
+            // Text mode (default)
+            self.render_text_tile(
+                &resolved_text,
+                cfg.font_size,
+                cfg.color_rgba,
+                cfg.stroke_color_rgba,
+                has_stroke,
+            )
+        };
 
         let mut paint = PixmapPaint::default();
         paint.opacity = cfg.opacity.clamp(0.0, 1.0);

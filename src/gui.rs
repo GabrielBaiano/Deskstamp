@@ -2,6 +2,57 @@ use crate::config::WatermarkConfig;
 use crate::ipc::{send_command, IpcCommand};
 use eframe::egui;
 
+/// Custom COSMIC-styled toggle switch with orange active accent (#e95420)
+fn cosmic_switch(ui: &mut egui::Ui, value: &mut bool) -> egui::Response {
+    let desired_size = egui::vec2(42.0, 22.0);
+    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+
+    if ui.is_rect_visible(rect) {
+        let how_on = ui.ctx().animate_bool(response.id, *value);
+
+        let off_color = egui::Color32::from_rgb(54, 57, 64);
+        let on_color = egui::Color32::from_rgb(233, 84, 32); // COSMIC Orange
+        let bg_color = off_color.lerp_to_gamma(on_color, how_on);
+
+        let radius = rect.height() * 0.5;
+        ui.painter().rect_filled(rect, radius, bg_color);
+
+        let knob_radius = radius - 2.5;
+        let knob_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+        let knob_center = egui::pos2(knob_x, rect.center().y);
+        ui.painter().circle_filled(knob_center, knob_radius, egui::Color32::WHITE);
+    }
+
+    response
+}
+
+/// Row toggle matching Pop!_OS COSMIC settings popover
+fn cosmic_row_toggle(ui: &mut egui::Ui, title: &str, subtitle: Option<&str>, value: &mut bool) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new(title).size(13.0).strong().color(egui::Color32::from_rgb(235, 235, 240)));
+            if let Some(sub) = subtitle {
+                ui.label(egui::RichText::new(sub).size(10.5).color(egui::Color32::from_rgb(150, 155, 165)));
+            }
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if cosmic_switch(ui, value).changed() {
+                changed = true;
+            }
+        });
+    });
+    changed
+}
+
+// ---------------------------------------------------------------------------
+// Deskstamp Settings Studio (Full Window)
+// ---------------------------------------------------------------------------
+
 pub struct SettingsApp {
     config: WatermarkConfig,
     daemon_running: bool,
@@ -56,9 +107,7 @@ impl SettingsApp {
         }
 
         if let Ok(exe) = std::env::current_exe() {
-            let res = std::process::Command::new(exe)
-                .arg("daemon")
-                .spawn();
+            let res = std::process::Command::new(exe).arg("daemon").spawn();
 
             if res.is_ok() {
                 for _ in 0..15 {
@@ -86,321 +135,366 @@ impl eframe::App for SettingsApp {
         let mut changed = false;
 
         let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = egui::Color32::from_rgb(22, 25, 32);
-        visuals.window_fill = egui::Color32::from_rgb(22, 25, 32);
+        visuals.panel_fill = egui::Color32::from_rgb(26, 28, 34);
+        visuals.window_fill = egui::Color32::from_rgb(26, 28, 34);
         visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
         visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
         visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
         visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
+        visuals.selection.bg_fill = egui::Color32::from_rgb(233, 84, 32);
         ui.ctx().set_visuals(visuals);
 
         if self.logo.is_none() {
             self.logo = Some(load_logo_texture(ui.ctx()));
         }
 
-        ui.spacing_mut().item_spacing = egui::vec2(10.0, 10.0);
-
-        // Header Section
+        // Header Panel
         ui.horizontal(|ui| {
             if let Some(logo) = &self.logo {
-                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(32.0, 32.0)));
+                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(44.0, 44.0)));
             }
-            ui.heading("Deskstamp Settings");
+            ui.vertical(|ui| {
+                ui.label(egui::RichText::new("Deskstamp Studio").strong().size(19.0));
+                ui.label(egui::RichText::new("Desktop Watermark & Security Layer").weak().size(12.0));
+            });
+
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if self.daemon_running {
-                    ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Live on Screen");
-                    if ui.button("⏹ Stop").clicked() {
-                        let _ = send_command(&IpcCommand::Quit);
-                        self.daemon_running = false;
-                        self.status_msg = "Overlay daemon stopped.".to_string();
-                    }
-                    if ui.button("🔄 Restart").clicked() {
-                        self.restart_daemon();
-                    }
+                if ui.button("Restart Daemon").clicked() {
+                    self.restart_daemon();
+                }
+
+                if self.config.active && self.daemon_running {
+                    ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Overlay Active");
+                } else if !self.config.active {
+                    ui.colored_label(egui::Color32::from_rgb(240, 180, 70), "○ Watermark Hidden");
                 } else {
-                    ui.colored_label(egui::Color32::from_rgb(230, 90, 90), "○ Stopped");
-                    if ui.button("▶ Start Overlay").clicked() {
-                        self.start_daemon_process();
-                    }
+                    ui.colored_label(egui::Color32::from_rgb(240, 90, 90), "✕ Daemon Offline");
                 }
             });
         });
 
+        ui.add_space(4.0);
         ui.separator();
+        ui.add_space(4.0);
 
-        // Active Toggle
-        ui.horizontal(|ui| {
-            let prev_active = self.config.active;
-            let label = if self.config.active { " Watermark Overlay: ENABLED " } else { " Watermark Overlay: DISABLED " };
-            ui.toggle_value(&mut self.config.active, label);
-            if self.config.active != prev_active {
-                changed = true;
-                if self.daemon_running {
-                    let _ = send_command(&IpcCommand::Toggle);
-                }
-            }
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new("Pop!_OS COSMIC Tray active").small().weak());
-            });
-        });
-
-        ui.separator();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            // Presets
+            // 1. Famous Watermark Presets
             ui.group(|ui| {
-                ui.label(egui::RichText::new("⚡ Quick Presets").strong());
-                ui.horizontal_wrapped(|ui| {
-                    if ui.button("🛡️ Column Guard (Lines + Horizontal)").clicked() {
+                ui.label(egui::RichText::new("FAMOUS WATERMARK PRESETS").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
+                ui.label(egui::RichText::new("Click any preset to instantly apply professional watermark patterns:").weak().size(11.0));
+
+                ui.columns(2, |cols| {
+                    if cols[0].button("DLP Confidential").on_hover_text("Red vertical dashed security lines + confidential host & user warning").clicked() {
                         self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                        self.config.opacity = 0.22;
-                        self.config.angle_deg = 0.0;
+                        self.config.opacity = 0.24;
+                        self.config.angle_deg = -20.0;
                         self.config.font_size = 18.0;
                         self.config.show_vertical_lines = true;
                         self.config.line_width = 1.5;
                         self.config.line_dashed = true;
-                        self.config.line_color_rgba = [255, 255, 255, 200];
-                        self.config.spacing_x = 480.0;
-                        self.config.spacing_y = 160.0;
-                        self.config.stagger_offset = 80.0;
+                        self.config.line_color_rgba = [255, 80, 80, 210];
+                        self.config.show_diagonal_lines = false;
+                        self.config.mode = "text".to_string();
+                        self.config.spacing_x = 460.0;
+                        self.config.spacing_y = 180.0;
                         changed = true;
                     }
-                    if ui.button("🏢 Security Grid (Lines + Diagonal)").clicked() {
-                        self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                    if cols[1].button("Security Crosshatch").on_hover_text("Intersecting vertical & diagonal lines with dense repeating timestamp matrix").clicked() {
+                        self.config.text = "INTERNAL ONLY • {user}@{hostname} • {date:%Y-%m-%d} {time:%H:%M:%S}".to_string();
                         self.config.opacity = 0.22;
                         self.config.angle_deg = -25.0;
-                        self.config.font_size = 18.0;
-                        self.config.show_vertical_lines = true;
-                        self.config.line_width = 1.5;
-                        self.config.line_dashed = true;
-                        self.config.line_color_rgba = [255, 255, 255, 200];
-                        self.config.spacing_x = 380.0;
-                        self.config.spacing_y = 200.0;
-                        self.config.stagger_offset = 100.0;
-                        changed = true;
-                    }
-                    if ui.button("🔒 High-Density Matrix").clicked() {
-                        self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
-                        self.config.opacity = 0.28;
-                        self.config.angle_deg = -30.0;
                         self.config.font_size = 16.0;
                         self.config.show_vertical_lines = true;
                         self.config.line_width = 1.0;
-                        self.config.line_dashed = false;
+                        self.config.line_dashed = true;
                         self.config.line_color_rgba = [255, 255, 255, 180];
-                        self.config.spacing_x = 280.0;
-                        self.config.spacing_y = 140.0;
-                        self.config.stagger_offset = 70.0;
+                        self.config.show_diagonal_lines = true;
+                        self.config.diagonal_line_angle = 45.0;
+                        self.config.diagonal_line_width = 1.0;
+                        self.config.diagonal_line_dashed = true;
+                        self.config.diagonal_line_color_rgba = [255, 255, 255, 180];
+                        self.config.diagonal_line_spacing = 180.0;
+                        self.config.mode = "text".to_string();
+                        self.config.spacing_x = 420.0;
+                        self.config.spacing_y = 200.0;
                         changed = true;
                     }
-                    if ui.button("🎥 Clean Stream (No Lines)").clicked() {
+                });
+
+                ui.columns(3, |cols| {
+                    if cols[0].button("Enterprise Asset Guard").on_hover_text("3D Stamp logo + host/user/date text stack").clicked() {
+                        self.config.text = "PROPERTY OF THE COMPANY • {user}@{hostname}".to_string();
+                        self.config.opacity = 0.25;
+                        self.config.angle_deg = -15.0;
+                        self.config.font_size = 17.0;
+                        self.config.show_vertical_lines = true;
+                        self.config.line_width = 1.2;
+                        self.config.line_dashed = false;
+                        self.config.line_color_rgba = [233, 84, 32, 190];
+                        self.config.show_diagonal_lines = false;
+                        self.config.mode = "both".to_string();
+                        self.config.image_path = None;
+                        self.config.image_scale = 1.0;
+                        self.config.spacing_x = 480.0;
+                        self.config.spacing_y = 240.0;
+                        changed = true;
+                    }
+                    if cols[1].button("Forensic Microgrid").on_hover_text("Ultra-dense repeating micro-text with dual intersecting lines").clicked() {
+                        self.config.text = "{user} • {hostname} • {time:%H:%M:%S}".to_string();
+                        self.config.opacity = 0.28;
+                        self.config.angle_deg = 0.0;
+                        self.config.font_size = 11.0;
+                        self.config.spacing_x = 220.0;
+                        self.config.spacing_y = 80.0;
+                        self.config.stagger_offset = 40.0;
+                        self.config.show_vertical_lines = true;
+                        self.config.line_width = 0.8;
+                        self.config.line_dashed = false;
+                        self.config.line_color_rgba = [255, 255, 255, 120];
+                        self.config.show_diagonal_lines = true;
+                        self.config.diagonal_line_angle = -45.0;
+                        self.config.diagonal_line_width = 0.8;
+                        self.config.diagonal_line_dashed = false;
+                        self.config.diagonal_line_color_rgba = [255, 255, 255, 120];
+                        self.config.diagonal_line_spacing = 110.0;
+                        self.config.mode = "text".to_string();
+                        changed = true;
+                    }
+                    if cols[2].button("Clean Streamer").on_hover_text("Subtle streaming watermark without lines").clicked() {
                         self.config.text = "LIVE STREAM • @{user}".to_string();
-                        self.config.opacity = 0.18;
-                        self.config.angle_deg = -20.0;
-                        self.config.font_size = 24.0;
+                        self.config.opacity = 0.16;
+                        self.config.angle_deg = -18.0;
+                        self.config.font_size = 22.0;
                         self.config.show_vertical_lines = false;
-                        self.config.spacing_x = 450.0;
-                        self.config.spacing_y = 250.0;
+                        self.config.show_diagonal_lines = false;
+                        self.config.mode = "text".to_string();
+                        self.config.spacing_x = 480.0;
+                        self.config.spacing_y = 260.0;
                         changed = true;
                     }
                 });
             });
 
-            // Mini Interactive Screen Preview
+            // 2. Mode & Content (Text, Image Logo, or Both)
             ui.group(|ui| {
-                ui.label(egui::RichText::new("🖥️ Live Preview").strong());
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 120.0), egui::Sense::hover());
-                let painter = ui.painter_at(rect);
-
-                // Preview monitor wallpaper
-                painter.rect_filled(rect, egui::CornerRadius::same(6), egui::Color32::from_rgb(26, 29, 36));
-
-                if self.config.active {
-                    let w = rect.width();
-                    let _h = rect.height();
-                    let preview_scale = w / 1920.0;
-                    let step_x = (self.config.spacing_x * preview_scale).max(30.0);
-                    let step_y = (self.config.spacing_y * preview_scale).max(20.0);
-
-                    // 1. Scaled vertical lines
-                    if self.config.show_vertical_lines {
-                        let l_alpha = ((self.config.line_color_rgba[3] as f32 / 255.0) * self.config.opacity.clamp(0.0, 1.0) * 255.0) as u8;
-                        let line_color = egui::Color32::from_rgba_premultiplied(
-                            self.config.line_color_rgba[0],
-                            self.config.line_color_rgba[1],
-                            self.config.line_color_rgba[2],
-                            l_alpha,
-                        );
-
-                        let mut cx = rect.left();
-                        while cx < rect.right() + 10.0 {
-                            if self.config.line_dashed {
-                                let mut cy = rect.top();
-                                while cy < rect.bottom() {
-                                    let dash_end = (cy + 6.0).min(rect.bottom());
-                                    painter.line_segment([egui::pos2(cx, cy), egui::pos2(cx, dash_end)], egui::Stroke::new(self.config.line_width.max(1.0), line_color));
-                                    cy += 11.0;
-                                }
-                            } else {
-                                painter.line_segment([egui::pos2(cx, rect.top()), egui::pos2(cx, rect.bottom())], egui::Stroke::new(self.config.line_width.max(1.0), line_color));
-                            }
-                            cx += step_x;
-                        }
-                    }
-
-                    // 2. Scaled preview text
-                    let t_alpha = (self.config.opacity.clamp(0.0, 1.0) * 255.0) as u8;
-                    let text_color = egui::Color32::from_rgba_unmultiplied(
-                        self.config.color_rgba[0],
-                        self.config.color_rgba[1],
-                        self.config.color_rgba[2],
-                        t_alpha,
-                    );
-                    let font_id = egui::FontId::proportional((self.config.font_size * preview_scale * 1.6).max(8.0));
-                    let sample_text = if self.config.text.len() > 22 {
-                        &self.config.text[..22]
-                    } else {
-                        &self.config.text
-                    };
-
-                    let mut cy = rect.top() + 14.0;
-                    let mut row = 0;
-                    while cy < rect.bottom() {
-                        let stagger = if row % 2 == 1 { self.config.stagger_offset * preview_scale } else { 0.0 };
-                        let mut cx = rect.left() + step_x * 0.5 + stagger;
-                        while cx < rect.right() + 40.0 {
-                            painter.text(
-                                egui::pos2(cx, cy),
-                                egui::Align2::CENTER_CENTER,
-                                sample_text,
-                                font_id.clone(),
-                                text_color,
-                            );
-                            cx += step_x;
-                        }
-                        cy += step_y;
-                        row += 1;
-                    }
-                } else {
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "Watermark Overlay Disabled",
-                        egui::FontId::proportional(13.0),
-                        egui::Color32::from_gray(120),
-                    );
-                }
-            });
-
-            // Vertical Lines Settings
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("📏 Vertical Lines").strong());
+                ui.label(egui::RichText::new("WATERMARK CONTENT & MODE").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
 
                 ui.horizontal(|ui| {
-                    if ui.checkbox(&mut self.config.show_vertical_lines, "Show Vertical Column Lines").changed() {
+                    ui.label("Watermark Type:");
+                    if ui.selectable_value(&mut self.config.mode, "text".to_string(), "Text Only").clicked() {
                         changed = true;
                     }
-                    if self.config.show_vertical_lines {
-                        if ui.checkbox(&mut self.config.line_dashed, "Dashed Pattern").changed() {
-                            changed = true;
-                        }
+                    if ui.selectable_value(&mut self.config.mode, "image".to_string(), "Logo / Image").clicked() {
+                        changed = true;
+                    }
+                    if ui.selectable_value(&mut self.config.mode, "both".to_string(), "Logo + Text").clicked() {
+                        changed = true;
                     }
                 });
 
-                if self.config.show_vertical_lines {
-                    ui.horizontal(|ui| {
-                        ui.label("Line Width:");
-                        if ui.add(egui::Slider::new(&mut self.config.line_width, 0.5..=6.0).suffix(" px")).changed() {
-                            changed = true;
-                        }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Line Color:");
-                        let mut lc = [
-                            self.config.line_color_rgba[0] as f32 / 255.0,
-                            self.config.line_color_rgba[1] as f32 / 255.0,
-                            self.config.line_color_rgba[2] as f32 / 255.0,
-                        ];
-                        if ui.color_edit_button_rgb(&mut lc).changed() {
-                            self.config.line_color_rgba[0] = (lc[0] * 255.0) as u8;
-                            self.config.line_color_rgba[1] = (lc[1] * 255.0) as u8;
-                            self.config.line_color_rgba[2] = (lc[2] * 255.0) as u8;
-                            changed = true;
-                        }
-
-                        ui.label("Alpha:");
-                        let mut line_a = self.config.line_color_rgba[3];
-                        if ui.add(egui::Slider::new(&mut line_a, 10..=255)).changed() {
-                            self.config.line_color_rgba[3] = line_a;
-                            changed = true;
-                        }
-                    });
-                }
-            });
-
-            // Text Template & Tokens
-            ui.group(|ui| {
-                ui.label(egui::RichText::new("✍️ Text Template").strong());
-                ui.horizontal(|ui| {
+                if self.config.mode == "text" || self.config.mode == "both" {
+                    ui.label("Watermark Text Template:");
                     if ui.text_edit_singleline(&mut self.config.text).changed() {
                         changed = true;
                     }
-                });
 
-                ui.horizontal_wrapped(|ui| {
-                    ui.label("Quick tokens:");
-                    if ui.button("+ User").clicked() {
-                        self.config.text.push_str(" {user}");
-                        changed = true;
-                    }
-                    if ui.button("+ Hostname").clicked() {
-                        self.config.text.push_str(" {hostname}");
-                        changed = true;
-                    }
-                    if ui.button("+ Time").clicked() {
-                        self.config.text.push_str(" {time:%H:%M:%S}");
-                        changed = true;
-                    }
-                    if ui.button("+ Date").clicked() {
-                        self.config.text.push_str(" {date:%Y-%m-%d}");
-                        changed = true;
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(egui::RichText::new("Insert Token:").weak().size(11.0));
+                        if ui.button("+ User").clicked() {
+                            self.config.text.push_str(" {user}");
+                            changed = true;
+                        }
+                        if ui.button("+ Host").clicked() {
+                            self.config.text.push_str(" {hostname}");
+                            changed = true;
+                        }
+                        if ui.button("+ Time").clicked() {
+                            self.config.text.push_str(" {time:%H:%M:%S}");
+                            changed = true;
+                        }
+                        if ui.button("+ Date").clicked() {
+                            self.config.text.push_str(" {date:%Y-%m-%d}");
+                            changed = true;
+                        }
+                    });
+                }
+
+                if self.config.mode == "image" || self.config.mode == "both" {
+                    ui.separator();
+                    ui.label("Logo / Image Settings:");
+                    let mut path_str = self.config.image_path.clone().unwrap_or_default();
+                    ui.horizontal(|ui| {
+                        ui.label("File Path:");
+                        if ui.add(egui::TextEdit::singleline(&mut path_str).hint_text("Leave blank for built-in 3D stamp icon")).changed() {
+                            self.config.image_path = if path_str.trim().is_empty() {
+                                None
+                            } else {
+                                Some(path_str.trim().to_string())
+                            };
+                            changed = true;
+                        }
+                        if self.config.image_path.is_some() {
+                            if ui.button("Reset to Default Stamp").clicked() {
+                                self.config.image_path = None;
+                                changed = true;
+                            }
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Logo Scale:");
+                        if ui.add(egui::Slider::new(&mut self.config.image_scale, 0.2..=3.0).suffix("x")).changed() {
+                            changed = true;
+                        }
+                    });
+                }
+            });
+
+            // 3. Security Lines (Vertical & Diagonal)
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("SECURITY LINES (VERTICAL & DIAGONAL)").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
+
+                ui.columns(2, |cols| {
+                    // Vertical Security Lines
+                    cols[0].group(|ui| {
+                        ui.label(egui::RichText::new("Vertical Column Lines").strong());
+                        if ui.checkbox(&mut self.config.show_vertical_lines, "Enable Vertical Lines").changed() {
+                            changed = true;
+                        }
+                        if self.config.show_vertical_lines {
+                            if ui.checkbox(&mut self.config.line_dashed, "Dashed Pattern").changed() {
+                                changed = true;
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("Width:");
+                                if ui.add(egui::Slider::new(&mut self.config.line_width, 0.5..=5.0).suffix(" px")).changed() {
+                                    changed = true;
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Color:");
+                                let mut c = [
+                                    self.config.line_color_rgba[0] as f32 / 255.0,
+                                    self.config.line_color_rgba[1] as f32 / 255.0,
+                                    self.config.line_color_rgba[2] as f32 / 255.0,
+                                    self.config.line_color_rgba[3] as f32 / 255.0,
+                                ];
+                                if ui.color_edit_button_rgba_unmultiplied(&mut c).changed() {
+                                    self.config.line_color_rgba = [
+                                        (c[0] * 255.0) as u8,
+                                        (c[1] * 255.0) as u8,
+                                        (c[2] * 255.0) as u8,
+                                        (c[3] * 255.0) as u8,
+                                    ];
+                                    changed = true;
+                                }
+                            });
+                        }
+                    });
+
+                    // Diagonal Crosshatch Lines
+                    cols[1].group(|ui| {
+                        ui.label(egui::RichText::new("Diagonal Security Lines").strong());
+                        if ui.checkbox(&mut self.config.show_diagonal_lines, "Enable Diagonal Lines").changed() {
+                            changed = true;
+                        }
+                        if self.config.show_diagonal_lines {
+                            if ui.checkbox(&mut self.config.diagonal_line_dashed, "Dashed Pattern").changed() {
+                                changed = true;
+                            }
+                            ui.horizontal(|ui| {
+                                ui.label("Angle:");
+                                if ui.add(egui::Slider::new(&mut self.config.diagonal_line_angle, -80.0..=80.0).suffix("°")).changed() {
+                                    changed = true;
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Spacing:");
+                                if ui.add(egui::Slider::new(&mut self.config.diagonal_line_spacing, 50.0..=500.0).suffix(" px")).changed() {
+                                    changed = true;
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Width:");
+                                if ui.add(egui::Slider::new(&mut self.config.diagonal_line_width, 0.5..=5.0).suffix(" px")).changed() {
+                                    changed = true;
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Color:");
+                                let mut c = [
+                                    self.config.diagonal_line_color_rgba[0] as f32 / 255.0,
+                                    self.config.diagonal_line_color_rgba[1] as f32 / 255.0,
+                                    self.config.diagonal_line_color_rgba[2] as f32 / 255.0,
+                                    self.config.diagonal_line_color_rgba[3] as f32 / 255.0,
+                                ];
+                                if ui.color_edit_button_rgba_unmultiplied(&mut c).changed() {
+                                    self.config.diagonal_line_color_rgba = [
+                                        (c[0] * 255.0) as u8,
+                                        (c[1] * 255.0) as u8,
+                                        (c[2] * 255.0) as u8,
+                                        (c[3] * 255.0) as u8,
+                                    ];
+                                    changed = true;
+                                }
+                            });
+                        }
+                    });
                 });
             });
 
-            // Matrix Transformation & Sliders
+            // 4. Typography & Geometry
             ui.group(|ui| {
-                ui.label(egui::RichText::new("📐 Geometry & Transformations").strong());
+                ui.label(egui::RichText::new("TYPOGRAPHY & GEOMETRY").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
+
+                // Font Family Dropdown
+                ui.horizontal(|ui| {
+                    ui.label("Font Family:");
+                    egui::ComboBox::from_id_salt("font_family_combo")
+                        .selected_text(&self.config.font_family)
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_value(&mut self.config.font_family, "Liberation Sans".to_string(), "Liberation Sans").clicked() {
+                                changed = true;
+                            }
+                            if ui.selectable_value(&mut self.config.font_family, "Roboto".to_string(), "Roboto").clicked() {
+                                changed = true;
+                            }
+                            if ui.selectable_value(&mut self.config.font_family, "Roboto Slab".to_string(), "Roboto Slab").clicked() {
+                                changed = true;
+                            }
+                            if ui.selectable_value(&mut self.config.font_family, "Liberation Mono".to_string(), "Liberation Mono").clicked() {
+                                changed = true;
+                            }
+                            if ui.selectable_value(&mut self.config.font_family, "Liberation Serif".to_string(), "Liberation Serif").clicked() {
+                                changed = true;
+                            }
+                        });
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Font Size:");
+                    if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=64.0).suffix(" px")).changed() {
+                        changed = true;
+                    }
+                });
 
                 ui.horizontal(|ui| {
                     ui.label("Rotation Angle:");
                     if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
                         changed = true;
                     }
-                    if ui.button("0° (Vertical)").clicked() {
+                    if ui.button("0°").clicked() {
                         self.config.angle_deg = 0.0;
                         changed = true;
                     }
-                    if ui.button("-25° (Diagonal)").clicked() {
+                    if ui.button("-25°").clicked() {
                         self.config.angle_deg = -25.0;
                         changed = true;
                     }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Opacity:");
-                    let mut op_percent = self.config.opacity * 100.0;
-                    if ui.add(egui::Slider::new(&mut op_percent, 1.0..=100.0).suffix("%")).changed() {
-                        self.config.opacity = op_percent / 100.0;
-                        changed = true;
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Font Size:");
-                    if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=64.0).suffix(" px")).changed() {
+                    if ui.button("-45°").clicked() {
+                        self.config.angle_deg = -45.0;
                         changed = true;
                     }
                 });
@@ -414,13 +508,13 @@ impl eframe::App for SettingsApp {
 
                 ui.horizontal(|ui| {
                     ui.label("Row Spacing (Y):");
-                    if ui.add(egui::Slider::new(&mut self.config.spacing_y, 80.0..=600.0).suffix(" px")).changed() {
+                    if ui.add(egui::Slider::new(&mut self.config.spacing_y, 60.0..=600.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label("Stagger / Offset:");
+                    ui.label("Stagger Offset:");
                     if ui.add(egui::Slider::new(&mut self.config.stagger_offset, 0.0..=400.0).suffix(" px")).changed() {
                         changed = true;
                     }
@@ -428,15 +522,25 @@ impl eframe::App for SettingsApp {
 
                 ui.horizontal(|ui| {
                     ui.label("Stroke Outline:");
-                    if ui.add(egui::Slider::new(&mut self.config.stroke_width, 0.0..=4.0).suffix(" px")).changed() {
+                    if ui.add(egui::Slider::new(&mut self.config.stroke_width, 0.0..=5.0).suffix(" px")).changed() {
                         changed = true;
                     }
                 });
             });
 
-            // Text & Stroke Colors
+            // 5. Colors & Contrast
             ui.group(|ui| {
-                ui.label(egui::RichText::new("🎨 Text Colors").strong());
+                ui.label(egui::RichText::new("COLORS & CONTRAST").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
+
+                ui.horizontal(|ui| {
+                    ui.label("Master Opacity:");
+                    let mut op = self.config.opacity * 100.0;
+                    if ui.add(egui::Slider::new(&mut op, 2.0..=90.0).suffix("%")).changed() {
+                        self.config.opacity = op / 100.0;
+                        changed = true;
+                    }
+                });
+
                 ui.horizontal(|ui| {
                     ui.label("Text Color:");
                     let mut c = [
@@ -453,7 +557,7 @@ impl eframe::App for SettingsApp {
 
                     ui.separator();
 
-                    ui.label("Stroke Color:");
+                    ui.label("Stroke Outline Color:");
                     let mut sc = [
                         self.config.stroke_color_rgba[0] as f32 / 255.0,
                         self.config.stroke_color_rgba[1] as f32 / 255.0,
@@ -468,7 +572,65 @@ impl eframe::App for SettingsApp {
                 });
             });
 
-            ui.add_space(8.0);
+            // 6. Live Mini Preview Canvas
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("LIVE PATTERN PREVIEW").strong().size(11.5).color(egui::Color32::from_rgb(233, 84, 32)));
+
+                let (response, painter) = ui.allocate_painter(egui::vec2(ui.available_width(), 100.0), egui::Sense::hover());
+                let rect = response.rect;
+
+                // Dark desktop background
+                painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(18, 20, 24));
+
+                // Paint vertical lines simulation
+                if self.config.show_vertical_lines {
+                    let v_step = (self.config.spacing_x * 0.25).max(30.0);
+                    let mut vx = rect.left() + 20.0;
+                    while vx < rect.right() {
+                        painter.line_segment(
+                            [egui::pos2(vx, rect.top()), egui::pos2(vx, rect.bottom())],
+                            egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(200, 200, 200, 50)),
+                        );
+                        vx += v_step;
+                    }
+                }
+
+                // Paint diagonal lines simulation
+                if self.config.show_diagonal_lines {
+                    let d_step = (self.config.diagonal_line_spacing * 0.3).max(25.0);
+                    let mut dx = rect.left() - 100.0;
+                    while dx < rect.right() + 100.0 {
+                        painter.line_segment(
+                            [egui::pos2(dx, rect.top()), egui::pos2(dx + 100.0, rect.bottom())],
+                            egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 120, 60, 45)),
+                        );
+                        dx += d_step;
+                    }
+                }
+
+                // Sample text badge
+                let resolved = crate::tokens::resolve_tokens(&self.config.text);
+                let display_sample = if resolved.len() > 36 {
+                    format!("{}...", &resolved[..33])
+                } else {
+                    resolved
+                };
+                let text_color = egui::Color32::from_rgba_unmultiplied(
+                    self.config.color_rgba[0],
+                    self.config.color_rgba[1],
+                    self.config.color_rgba[2],
+                    ((self.config.opacity * 255.0) as u8).max(40),
+                );
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    format!("{} (angle: {:.0}°)", display_sample, self.config.angle_deg),
+                    egui::FontId::proportional(14.0),
+                    text_color,
+                );
+            });
+
+            ui.add_space(6.0);
             ui.label(egui::RichText::new(&self.status_msg).italics());
         });
 
@@ -478,31 +640,11 @@ impl eframe::App for SettingsApp {
     }
 }
 
-pub fn load_app_icon() -> Option<egui::IconData> {
-    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/64x64/apps/io.github.gabrielbaiano.Deskstamp.png");
-    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).ok()?;
-    Some(egui::IconData {
-        rgba: pix.data().to_vec(),
-        width: pix.width(),
-        height: pix.height(),
-    })
-}
-
-pub fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
-    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
-    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).expect("valid icon");
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-        [pix.width() as usize, pix.height() as usize],
-        pix.data(),
-    );
-    ctx.load_texture("deskstamp_logo", color_image, egui::TextureOptions::LINEAR)
-}
-
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = egui::ViewportBuilder::default()
-        .with_inner_size([620.0, 760.0])
-        .with_min_inner_size([500.0, 550.0])
-        .with_title("Deskstamp - Settings");
+        .with_inner_size([720.0, 840.0])
+        .with_min_inner_size([550.0, 600.0])
+        .with_title("Deskstamp Studio - Settings");
 
     if let Some(icon) = load_app_icon() {
         builder = builder.with_icon(icon);
@@ -514,13 +656,17 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     eframe::run_native(
-        "Deskstamp",
+        "Deskstamp Studio",
         native_options,
         Box::new(|cc| Ok(Box::new(SettingsApp::new(cc)))),
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// COSMIC Quick Menu Applet Popover
+// ---------------------------------------------------------------------------
 
 fn get_menu_pid_path() -> std::path::PathBuf {
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
@@ -586,269 +732,171 @@ impl QuickMenuApp {
 }
 
 impl eframe::App for QuickMenuApp {
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Color32::TRANSPARENT.to_normalized_gamma_f32()
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.last_check_frame += 1;
         if self.last_check_frame % 60 == 0 {
             self.daemon_running = send_command(&IpcCommand::Status).is_ok();
         }
 
-        // Close when user presses Escape
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
         let mut changed = false;
 
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = egui::Color32::from_rgb(22, 25, 32);
-        visuals.window_fill = egui::Color32::from_rgb(22, 25, 32);
-        visuals.widgets.noninteractive.corner_radius = egui::CornerRadius::same(6);
-        visuals.widgets.inactive.corner_radius = egui::CornerRadius::same(6);
-        visuals.widgets.hovered.corner_radius = egui::CornerRadius::same(6);
-        visuals.widgets.active.corner_radius = egui::CornerRadius::same(6);
-        ui.ctx().set_visuals(visuals);
-
         if self.logo.is_none() {
             self.logo = Some(load_logo_texture(ui.ctx()));
         }
 
-        ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
+        // Native COSMIC Popover Card: dark rounded card with subtle 1px border
+        let card_frame = egui::Frame::new()
+            .fill(egui::Color32::from_rgb(30, 32, 36))
+            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(53, 57, 66)))
+            .corner_radius(14.0)
+            .inner_margin(egui::Margin::same(14));
 
-        // Header with 3D Stamp Icon + Title
-        ui.horizontal(|ui| {
-            if let Some(logo) = &self.logo {
-                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(36.0, 36.0)));
+        card_frame.show(ui, |ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
+
+            // Popover Header: Icon + Title + Status + Close
+            ui.horizontal(|ui| {
+                if let Some(logo) = &self.logo {
+                    ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(28.0, 28.0)));
+                }
+                ui.vertical(|ui| {
+                    ui.label(egui::RichText::new("Deskstamp").strong().size(15.0).color(egui::Color32::WHITE));
+                });
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.add(egui::Button::new(egui::RichText::new("✕").size(13.0)).frame(false)).clicked() {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    if self.config.active && self.daemon_running {
+                        ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Active");
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(180, 185, 195), "○ Off");
+                    }
+                });
+            });
+
+            ui.separator();
+
+            // 1. Primary Toggle: Watermark Enabled (Pop!_OS COSMIC toggle row)
+            if cosmic_row_toggle(ui, "Watermark Overlay", Some("Display watermark on desktop"), &mut self.config.active) {
+                changed = true;
+                if self.daemon_running {
+                    let _ = send_command(&IpcCommand::Toggle);
+                }
             }
-            ui.vertical(|ui| {
-                ui.label(egui::RichText::new("Deskstamp").strong().size(17.0));
-                ui.label(egui::RichText::new("Desktop Watermark").weak().size(11.0));
-            });
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("✕").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+
+            ui.separator();
+
+            // 2. Security Lines Toggles
+            if cosmic_row_toggle(ui, "Vertical Lines", Some("Column security borders"), &mut self.config.show_vertical_lines) {
+                changed = true;
+            }
+
+            if cosmic_row_toggle(ui, "Diagonal Lines", Some("Crosshatch diagonal lines"), &mut self.config.show_diagonal_lines) {
+                changed = true;
+            }
+
+            ui.separator();
+
+            // 3. Mode Selection (Segmented Pills)
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Mode:").size(12.0).weak());
+                if ui.selectable_value(&mut self.config.mode, "text".to_string(), "Text").clicked() {
+                    changed = true;
                 }
-                if self.config.active && self.daemon_running {
-                    ui.colored_label(egui::Color32::from_rgb(80, 220, 120), "● Active");
-                } else {
-                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), "○ Disabled");
+                if ui.selectable_value(&mut self.config.mode, "image".to_string(), "Logo").clicked() {
+                    changed = true;
+                }
+                if ui.selectable_value(&mut self.config.mode, "both".to_string(), "Both").clicked() {
+                    changed = true;
                 }
             });
+
+            // 4. Quick Presets Grid
+            ui.label(egui::RichText::new("PRESETS").strong().size(11.0).color(egui::Color32::from_rgb(233, 84, 32)));
+            ui.columns(2, |cols| {
+                if cols[0].add_sized([cols[0].available_width(), 26.0], egui::Button::new("DLP Guard")).clicked() {
+                    self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
+                    self.config.opacity = 0.24;
+                    self.config.angle_deg = -20.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.line_width = 1.5;
+                    self.config.line_dashed = true;
+                    self.config.line_color_rgba = [255, 80, 80, 210];
+                    self.config.show_diagonal_lines = false;
+                    self.config.mode = "text".to_string();
+                    changed = true;
+                }
+                if cols[1].add_sized([cols[1].available_width(), 26.0], egui::Button::new("Crosshatch")).clicked() {
+                    self.config.text = "INTERNAL ONLY • {user}@{hostname}".to_string();
+                    self.config.opacity = 0.22;
+                    self.config.angle_deg = -25.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.line_dashed = true;
+                    self.config.show_diagonal_lines = true;
+                    self.config.diagonal_line_angle = 45.0;
+                    self.config.diagonal_line_dashed = true;
+                    self.config.mode = "text".to_string();
+                    changed = true;
+                }
+            });
+            ui.columns(2, |cols| {
+                if cols[0].add_sized([cols[0].available_width(), 26.0], egui::Button::new("Asset Guard")).clicked() {
+                    self.config.text = "PROPERTY OF {hostname}".to_string();
+                    self.config.opacity = 0.25;
+                    self.config.angle_deg = -15.0;
+                    self.config.show_vertical_lines = true;
+                    self.config.show_diagonal_lines = false;
+                    self.config.mode = "both".to_string();
+                    self.config.image_path = None;
+                    self.config.image_scale = 1.0;
+                    changed = true;
+                }
+                if cols[1].add_sized([cols[1].available_width(), 26.0], egui::Button::new("Clean Stream")).clicked() {
+                    self.config.text = "LIVE STREAM • @{user}".to_string();
+                    self.config.opacity = 0.16;
+                    self.config.angle_deg = -18.0;
+                    self.config.show_vertical_lines = false;
+                    self.config.show_diagonal_lines = false;
+                    self.config.mode = "text".to_string();
+                    changed = true;
+                }
+            });
+
+            // 5. Opacity Slider
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Opacity:").size(12.0));
+                let mut op = self.config.opacity * 100.0;
+                if ui.add(egui::Slider::new(&mut op, 2.0..=70.0).suffix("%")).changed() {
+                    self.config.opacity = op / 100.0;
+                    changed = true;
+                }
+            });
+
+            ui.separator();
+
+            // 6. Action Footer: Deskstamp Studio settings... (Matching COSMIC bottom action link)
+            let studio_btn = egui::Button::new(
+                egui::RichText::new("Deskstamp Studio settings...")
+                    .size(13.0)
+                    .color(egui::Color32::from_rgb(220, 225, 235)),
+            )
+            .frame(false);
+
+            if ui.add_sized([ui.available_width(), 28.0], studio_btn).clicked() {
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).arg("settings").spawn();
+                }
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         });
-
-        ui.separator();
-
-        // Big Main Switch Button
-        let switch_label = if self.config.active {
-            egui::RichText::new("✓ Watermark is Active  •  Click to Hide")
-                .color(egui::Color32::from_rgb(120, 240, 150))
-                .strong()
-        } else {
-            egui::RichText::new("○ Watermark is Disabled  •  Click to Show")
-                .color(egui::Color32::from_rgb(240, 140, 140))
-                .strong()
-        };
-        if ui.add_sized([ui.available_width(), 36.0], egui::Button::new(switch_label)).clicked() {
-            self.config.active = !self.config.active;
-            changed = true;
-            if self.daemon_running {
-                let _ = send_command(&IpcCommand::Toggle);
-            }
-        }
-
-        ui.add_space(2.0);
-
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                // Quick Presets
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("PRESETS").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
-                    ui.columns(2, |cols| {
-                        if cols[0].add_sized([cols[0].available_width(), 28.0], egui::Button::new("Column Guard")).clicked() {
-                            self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                            self.config.opacity = 0.22;
-                            self.config.angle_deg = 0.0;
-                            self.config.font_size = 18.0;
-                            self.config.show_vertical_lines = true;
-                            self.config.line_width = 1.5;
-                            self.config.line_dashed = true;
-                            self.config.line_color_rgba = [255, 255, 255, 200];
-                            self.config.spacing_x = 480.0;
-                            self.config.spacing_y = 160.0;
-                            self.config.stagger_offset = 80.0;
-                            changed = true;
-                        }
-                        if cols[1].add_sized([cols[1].available_width(), 28.0], egui::Button::new("Security Grid")).clicked() {
-                            self.config.text = "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string();
-                            self.config.opacity = 0.22;
-                            self.config.angle_deg = -25.0;
-                            self.config.font_size = 18.0;
-                            self.config.show_vertical_lines = true;
-                            self.config.line_width = 1.5;
-                            self.config.line_dashed = true;
-                            self.config.line_color_rgba = [255, 255, 255, 200];
-                            self.config.spacing_x = 380.0;
-                            self.config.spacing_y = 200.0;
-                            self.config.stagger_offset = 100.0;
-                            changed = true;
-                        }
-                    });
-                    ui.columns(2, |cols| {
-                        if cols[0].add_sized([cols[0].available_width(), 28.0], egui::Button::new("High-Density")).clicked() {
-                            self.config.text = "INTERNAL ONLY • {user} • {time:%H:%M:%S}".to_string();
-                            self.config.opacity = 0.28;
-                            self.config.angle_deg = -30.0;
-                            self.config.font_size = 16.0;
-                            self.config.show_vertical_lines = true;
-                            self.config.line_width = 1.0;
-                            self.config.line_dashed = false;
-                            self.config.line_color_rgba = [255, 255, 255, 180];
-                            self.config.spacing_x = 280.0;
-                            self.config.spacing_y = 140.0;
-                            self.config.stagger_offset = 70.0;
-                            changed = true;
-                        }
-                        if cols[1].add_sized([cols[1].available_width(), 28.0], egui::Button::new("Clean Stream")).clicked() {
-                            self.config.text = "LIVE STREAM • @{user}".to_string();
-                            self.config.opacity = 0.18;
-                            self.config.angle_deg = -20.0;
-                            self.config.font_size = 24.0;
-                            self.config.show_vertical_lines = false;
-                            self.config.spacing_x = 450.0;
-                            self.config.spacing_y = 250.0;
-                            changed = true;
-                        }
-                    });
-                });
-
-                ui.add_space(2.0);
-
-                // Watermark Text Template
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("WATERMARK TEXT").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
-                    if ui.text_edit_singleline(&mut self.config.text).changed() {
-                        changed = true;
-                    }
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(egui::RichText::new("Tokens:").weak().size(11.0));
-                        if ui.button("+ User").clicked() {
-                            self.config.text.push_str(" {user}");
-                            changed = true;
-                        }
-                        if ui.button("+ Host").clicked() {
-                            self.config.text.push_str(" {hostname}");
-                            changed = true;
-                        }
-                        if ui.button("+ Time").clicked() {
-                            self.config.text.push_str(" {time:%H:%M:%S}");
-                            changed = true;
-                        }
-                        if ui.button("+ Date").clicked() {
-                            self.config.text.push_str(" {date:%Y-%m-%d}");
-                            changed = true;
-                        }
-                    });
-                });
-
-                ui.add_space(2.0);
-
-                // Appearance & Adjustments
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("APPEARANCE").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
-
-                    // Opacity
-                    ui.horizontal(|ui| {
-                        ui.label("Opacity:");
-                        let mut op = self.config.opacity * 100.0;
-                        if ui.add(egui::Slider::new(&mut op, 2.0..=80.0).suffix("%")).changed() {
-                            self.config.opacity = op / 100.0;
-                            changed = true;
-                        }
-                    });
-
-                    // Angle
-                    ui.horizontal(|ui| {
-                        ui.label("Angle:");
-                        if ui.add(egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
-                            changed = true;
-                        }
-                        if ui.button("0°").clicked() {
-                            self.config.angle_deg = 0.0;
-                            changed = true;
-                        }
-                        if ui.button("-25°").clicked() {
-                            self.config.angle_deg = -25.0;
-                            changed = true;
-                        }
-                    });
-
-                    // Font Size
-                    ui.horizontal(|ui| {
-                        ui.label("Font Size:");
-                        if ui.add(egui::Slider::new(&mut self.config.font_size, 10.0..=48.0).suffix(" px")).changed() {
-                            changed = true;
-                        }
-                    });
-
-                    // Column Spacing
-                    ui.horizontal(|ui| {
-                        ui.label("Columns (X):");
-                        if ui.add(egui::Slider::new(&mut self.config.spacing_x, 150.0..=800.0).suffix(" px")).changed() {
-                            changed = true;
-                        }
-                    });
-
-                    // Row Spacing
-                    ui.horizontal(|ui| {
-                        ui.label("Rows (Y):");
-                        if ui.add(egui::Slider::new(&mut self.config.spacing_y, 60.0..=400.0).suffix(" px")).changed() {
-                            changed = true;
-                        }
-                    });
-                });
-
-                ui.add_space(2.0);
-
-                // Vertical Column Lines
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("VERTICAL LINES").strong().size(11.0).color(egui::Color32::from_rgb(160, 180, 220)));
-                    ui.horizontal(|ui| {
-                        if ui.checkbox(&mut self.config.show_vertical_lines, "Show Lines").changed() {
-                            changed = true;
-                        }
-                        if self.config.show_vertical_lines {
-                            if ui.checkbox(&mut self.config.line_dashed, "Dashed").changed() {
-                                changed = true;
-                            }
-                        }
-                    });
-
-                    if self.config.show_vertical_lines {
-                        ui.horizontal(|ui| {
-                            ui.label("Line Width:");
-                            if ui.add(egui::Slider::new(&mut self.config.line_width, 0.5..=5.0).suffix(" px")).changed() {
-                                changed = true;
-                            }
-                        });
-                    }
-                });
-
-                ui.add_space(4.0);
-
-                // Footer Actions
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("🔄 Restart Overlay").clicked() {
-                        self.start_daemon();
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Quit Deskstamp").clicked() {
-                            let _ = send_command(&IpcCommand::Quit);
-                            std::process::exit(0);
-                        }
-                    });
-                });
-            });
 
         if changed {
             self.notify_daemon();
@@ -864,7 +912,7 @@ pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(pid) = content.trim().parse::<i32>() {
                 unsafe {
                     if libc::kill(pid, 0) == 0 {
-                        // Process is running! User clicked tray to toggle OFF.
+                        // Already open! Toggle OFF instantly
                         libc::kill(pid, libc::SIGTERM);
                         let _ = std::fs::remove_file(&pid_path);
                         return Ok(());
@@ -875,16 +923,18 @@ pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::fs::remove_file(&pid_path);
     }
 
-    // Write current PID
     let current_pid = std::process::id();
     let _ = std::fs::write(&pid_path, current_pid.to_string());
     let _guard = MenuPidGuard;
 
     let mut builder = egui::ViewportBuilder::default()
-        .with_inner_size([380.0, 620.0])
-        .with_min_inner_size([340.0, 480.0])
-        .with_maximize_button(false)
-        .with_title("Deskstamp");
+        .with_inner_size([350.0, 520.0])
+        .with_min_inner_size([320.0, 480.0])
+        .with_decorations(false)
+        .with_transparent(true)
+        .with_always_on_top()
+        .with_resizable(false)
+        .with_title("Deskstamp Menu");
 
     if let Some(icon) = load_app_icon() {
         builder = builder.with_icon(icon);
@@ -896,10 +946,30 @@ pub fn run_quick_menu() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     eframe::run_native(
-        "Deskstamp",
+        "Deskstamp Menu",
         native_options,
         Box::new(|cc| Ok(Box::new(QuickMenuApp::new(cc)))),
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
 
     Ok(())
+}
+
+pub fn load_app_icon() -> Option<egui::IconData> {
+    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/64x64/apps/io.github.gabrielbaiano.Deskstamp.png");
+    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).ok()?;
+    Some(egui::IconData {
+        rgba: pix.data().to_vec(),
+        width: pix.width(),
+        height: pix.height(),
+    })
+}
+
+pub fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
+    static ICON_BYTES: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
+    let pix = tiny_skia::Pixmap::decode_png(ICON_BYTES).expect("valid icon");
+    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        [pix.width() as usize, pix.height() as usize],
+        pix.data(),
+    );
+    ctx.load_texture("deskstamp_logo", color_image, egui::TextureOptions::LINEAR)
 }

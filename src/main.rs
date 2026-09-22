@@ -21,10 +21,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let command = args.get(1).map(|s| s.as_str()).unwrap_or("menu");
 
     match command {
-        "menu" | "quick" | "gui" => {
+        "menu" | "quick" => {
             deskstamp::gui::run_quick_menu()?;
         }
-        "settings" => {
+        "settings" | "studio" | "gui" => {
             deskstamp::gui::run_gui()?;
         }
         "toggle" => {
@@ -124,6 +124,7 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 IpcCommand::Reload => {
                     app.config = WatermarkConfig::load();
+                    app.renderer.update_font(app.config.font_path.as_deref(), &app.config.font_family);
                     active_clone.store(app.config.active, Ordering::Relaxed);
                     app.draw(&qh_clone);
                 }
