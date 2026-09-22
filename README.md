@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="data/icons/hicolor/scalable/apps/io.github.gabrielbaiano.Deskstamp.svg" alt="Deskstamp Logo" width="128"/>
+  <img src="data/icons/io.github.gabrielbaiano.Deskstamp.png" alt="Deskstamp Logo" width="160"/>
 </p>
 
 <h1 align="center">Deskstamp</h1>

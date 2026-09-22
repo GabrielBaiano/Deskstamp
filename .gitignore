@@ -1,3 +1,6 @@
 /target
-*.png
 .config
+*_preview.png
+test*.png
+preview_ci.png
+!data/icons/
