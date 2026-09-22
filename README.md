@@ -14,8 +14,6 @@
   <a href="https://wayland.freedesktop.org/"><img src="https://img.shields.io/badge/Display%20Server-Wayland-orange?style=flat-square" alt="Wayland"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202021-red?style=flat-square&logo=rust" alt="Rust"></a>
   <a href="https://flathub.org/"><img src="https://img.shields.io/badge/Distribution-Flathub%20Ready-blue?style=flat-square" alt="Flathub"></a>
-  <a href="https://github.com/GabrielBaiano/Deskstamp/actions/workflows/ci.yml"><img src="https://github.com/GabrielBaiano/Deskstamp/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/GabrielBaiano/Deskstamp?style=flat-square" alt="License"></a>
   <a href="https://github.com/sponsors/GabrielBaiano"><img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=github-sponsors" alt="GitHub Sponsors"></a>
   <a href="https://buymeacoffee.com/gabrielngal"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow.svg?style=flat-square" alt="Buy Me A Coffee"></a>
 </p>
