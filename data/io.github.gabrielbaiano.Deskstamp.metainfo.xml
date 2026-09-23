@@ -5,7 +5,11 @@
   <summary>Native Desktop Watermark for COSMIC &amp; Wayland</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <developer_name>Gabriel Baiano</developer_name>
+  
+  <developer id="io.github.gabrielbaiano">
+    <name>Gabriel Baiano</name>
+  </developer>
+
   <description>
     <p>
       Deskstamp is a native, ultra-lightweight screen watermark application designed specifically
@@ -21,20 +25,42 @@
       <li>Native Wayland layer-shell integration without performance bottlenecks.</li>
     </ul>
   </description>
+
+  <url type="homepage">https://github.com/GabrielBaiano/Deskstamp</url>
+  <url type="bugtracker">https://github.com/GabrielBaiano/Deskstamp/issues</url>
+  <url type="vcs-browser">https://github.com/GabrielBaiano/Deskstamp</url>
+
   <launchable type="desktop-id">io.github.gabrielbaiano.Deskstamp.desktop</launchable>
+
   <categories>
     <category>Utility</category>
+    <category>Settings</category>
     <category>DesktopSettings</category>
-    <category>AudioVideo</category>
   </categories>
+
+  <branding>
+    <color type="primary" scheme_preference="dark">#e95420</color>
+  </branding>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/GabrielBaiano/Deskstamp/main/docs/screenshot.png</image>
+      <caption>Deskstamp Watermark Settings in Pop!_OS COSMIC</caption>
+    </screenshot>
+  </screenshots>
+
+  <content_rating type="oars-1.1" />
+
   <provides>
     <binary>deskstamp</binary>
   </provides>
+
   <releases>
-    <release version="0.1.0" date="2026-09-22">
+    <release version="0.1.0" date="2026-09-23">
       <description>
-        <p>Initial release with full Wayland Layer Shell support and click-through pass-through.</p>
+        <p>Initial release with full Wayland Layer Shell support, live settings, and click-through pass-through.</p>
       </description>
     </release>
   </releases>
 </component>
+
