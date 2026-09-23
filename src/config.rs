@@ -81,9 +81,30 @@ pub struct WatermarkConfig {
     #[serde(default = "default_active")]
     pub active: bool,
 
+    #[serde(default = "default_show_text")]
+    pub show_text: bool,
+
+    #[serde(default = "default_show_icon")]
+    pub show_icon: bool,
+
+    #[serde(default = "default_show_lines_next_to_text")]
+    pub show_lines_next_to_text: bool,
+
+    #[serde(default = "default_line_length")]
+    pub line_length: f32,
+
+    #[serde(default = "default_line_gap")]
+    pub line_gap: f32,
+
     #[serde(default = "default_update_interval")]
     pub update_interval_secs: u64,
 }
+
+fn default_show_text() -> bool { true }
+fn default_show_icon() -> bool { true }
+fn default_show_lines_next_to_text() -> bool { true }
+fn default_line_length() -> f32 { 60.0 }
+fn default_line_gap() -> f32 { 14.0 }
 
 fn default_text() -> String {
     "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string()
@@ -144,6 +165,11 @@ impl Default for WatermarkConfig {
             font_family: default_font_family(),
             font_path: default_font_path(),
             active: default_active(),
+            show_text: default_show_text(),
+            show_icon: default_show_icon(),
+            show_lines_next_to_text: default_show_lines_next_to_text(),
+            line_length: default_line_length(),
+            line_gap: default_line_gap(),
             update_interval_secs: default_update_interval(),
         }
     }

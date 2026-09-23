@@ -321,39 +321,14 @@ impl WatermarkRenderer {
             }
         }
 
-        // 3. Prepare Tile (Text, Image, or Both)
+        // 3. Prepare Tile (Text + Icon side-by-side + Lines alongside with spacing)
         let resolved_text = resolve_tokens(&cfg.text);
         let has_stroke = cfg.stroke_width > 0.1;
 
-        let (tile_pixmap, tile_w, tile_h) = if cfg.mode == "image" {
-            let img = self.load_image_tile(cfg.image_path.as_deref(), cfg.image_scale);
-            let w = img.width() as f32;
-            let h = img.height() as f32;
-            (img, w, h)
-        } else if cfg.mode == "both" {
-            let img = self.load_image_tile(cfg.image_path.as_deref(), cfg.image_scale);
-            let (txt_tile, txt_w, txt_h) = self.render_text_tile(
-                &resolved_text,
-                cfg.font_size,
-                cfg.color_rgba,
-                cfg.stroke_color_rgba,
-                has_stroke,
-            );
-            let combined_w = (img.width() as f32).max(txt_w).ceil() as u32;
-            let combined_h = (img.height() as f32 + txt_h + 8.0).ceil() as u32;
-            let mut comb = Pixmap::new(combined_w.max(1), combined_h.max(1)).unwrap();
-            comb.fill(Color::TRANSPARENT);
+        let should_show_text = cfg.show_text && !resolved_text.is_empty();
+        let should_show_icon = cfg.show_icon || cfg.mode == "image" || cfg.mode == "both";
 
-            let img_x = (combined_w as f32 - img.width() as f32) * 0.5;
-            comb.draw_pixmap(img_x as i32, 0, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
-
-            let txt_x = (combined_w as f32 - txt_w) * 0.5;
-            let txt_y = img.height() as f32 + 8.0;
-            comb.draw_pixmap(txt_x as i32, txt_y as i32, txt_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
-
-            (comb, combined_w as f32, combined_h as f32)
-        } else {
-            // Text mode (default)
+        let (txt_tile, txt_w, txt_h) = if should_show_text {
             self.render_text_tile(
                 &resolved_text,
                 cfg.font_size,
@@ -361,6 +336,96 @@ impl WatermarkRenderer {
                 cfg.stroke_color_rgba,
                 has_stroke,
             )
+        } else {
+            (Pixmap::new(1, 1).unwrap(), 0.0, 0.0)
+        };
+
+        let (icon_tile, icon_w, icon_h) = if should_show_icon {
+            // Scale icon proportionally to match font size
+            let base_scale = (cfg.font_size / 24.0).clamp(0.4, 3.0) * cfg.image_scale;
+            let img = self.load_image_tile(cfg.image_path.as_deref(), base_scale);
+            let w = img.width() as f32;
+            let h = img.height() as f32;
+            (Some(img), w, h)
+        } else {
+            (None, 0.0, 0.0)
+        };
+
+        let icon_gap = if should_show_icon && should_show_text && txt_w > 0.0 { 12.0 } else { 0.0 };
+        let content_w = icon_w + icon_gap + txt_w;
+        let content_h = icon_h.max(txt_h).max(12.0);
+
+        let (tile_pixmap, tile_w, tile_h) = if cfg.show_lines_next_to_text && (content_w > 0.0) {
+            let line_len = cfg.line_length.max(20.0);
+            let line_gap = cfg.line_gap.max(10.0);
+            let total_w = ((line_len + line_gap) * 2.0 + content_w).ceil() as u32;
+            let total_h = (content_h + 8.0).ceil() as u32;
+
+            let mut comb = Pixmap::new(total_w.max(1), total_h.max(1)).unwrap();
+            comb.fill(Color::TRANSPARENT);
+
+            let line_y = total_h as f32 * 0.5;
+            let line_color = Color::from_rgba8(
+                cfg.line_color_rgba[0],
+                cfg.line_color_rgba[1],
+                cfg.line_color_rgba[2],
+                cfg.line_color_rgba[3],
+            );
+            let line_stroke = Stroke {
+                width: cfg.line_width.max(1.0),
+                dash: if cfg.line_dashed { StrokeDash::new(vec![8.0, 6.0], 0.0) } else { None },
+                ..Default::default()
+            };
+
+            // Left line (stops before content with clear gap)
+            let mut pb_left = PathBuilder::new();
+            pb_left.move_to(0.0, line_y);
+            pb_left.line_to(line_len, line_y);
+            if let Some(path) = pb_left.finish() {
+                comb.stroke_path(&path, &Paint { shader: Shader::SolidColor(line_color), ..Default::default() }, &line_stroke, Transform::identity(), None);
+            }
+
+            // Right line (starts after content with clear gap)
+            let right_start = total_w as f32 - line_len;
+            let mut pb_right = PathBuilder::new();
+            pb_right.move_to(right_start, line_y);
+            pb_right.line_to(total_w as f32, line_y);
+            if let Some(path) = pb_right.finish() {
+                comb.stroke_path(&path, &Paint { shader: Shader::SolidColor(line_color), ..Default::default() }, &line_stroke, Transform::identity(), None);
+            }
+
+            // Draw Icon + Text in center
+            let mut curr_x = line_len + line_gap;
+            if let Some(img) = &icon_tile {
+                let img_y = (total_h as f32 - icon_h) * 0.5;
+                comb.draw_pixmap(curr_x.round() as i32, img_y.round() as i32, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+                curr_x += icon_w + icon_gap;
+            }
+
+            if should_show_text && txt_w > 0.0 {
+                let txt_y = (total_h as f32 - txt_h) * 0.5;
+                comb.draw_pixmap(curr_x.round() as i32, txt_y.round() as i32, txt_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            }
+
+            (comb, total_w as f32, total_h as f32)
+        } else {
+            let total_w = content_w.max(1.0).ceil() as u32;
+            let total_h = content_h.max(1.0).ceil() as u32;
+            let mut comb = Pixmap::new(total_w, total_h).unwrap();
+            comb.fill(Color::TRANSPARENT);
+
+            let mut curr_x = 0.0;
+            if let Some(img) = &icon_tile {
+                let img_y = (total_h as f32 - icon_h) * 0.5;
+                comb.draw_pixmap(curr_x as i32, img_y as i32, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+                curr_x += icon_w + icon_gap;
+            }
+            if should_show_text && txt_w > 0.0 {
+                let txt_y = (total_h as f32 - txt_h) * 0.5;
+                comb.draw_pixmap(curr_x as i32, txt_y as i32, txt_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            }
+
+            (comb, total_w as f32, total_h as f32)
         };
 
         let mut paint = PixmapPaint::default();
