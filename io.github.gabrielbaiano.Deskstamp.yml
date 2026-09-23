@@ -24,6 +24,7 @@ build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
   env:
     CARGO_HOME: /run/build/deskstamp/cargo
+    CARGO_NET_OFFLINE: 'true'
 
 modules:
   - name: deskstamp
@@ -39,5 +40,5 @@ modules:
       - type: git
         url: https://github.com/GabrielBaiano/Deskstamp.git
         tag: v0.1.0
-        commit: ca72c4333919c0b118b6e689626315dfca069352
+        commit: 6ff33af2a2f36e10b6e333f72e69985539b14ace
       - cargo-sources.json
