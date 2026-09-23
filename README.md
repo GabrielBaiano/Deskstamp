@@ -14,29 +14,10 @@
   <a href="https://wayland.freedesktop.org/"><img src="https://img.shields.io/badge/Display%20Server-Wayland-orange?style=flat-square" alt="Wayland"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Language-Rust%202021-red?style=flat-square&logo=rust" alt="Rust"></a>
   <a href="https://flathub.org/"><img src="https://img.shields.io/badge/Distribution-Flathub%20Ready-blue?style=flat-square" alt="Flathub"></a>
-  <a href="https://github.com/sponsors/GabrielBaiano"><img src="https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa?style=flat-square&logo=github-sponsors" alt="GitHub Sponsors"></a>
-  <a href="https://buymeacoffee.com/gabrielngal"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-yellow.svg?style=flat-square" alt="Buy Me A Coffee"></a>
-</p>
+  </p>
 
 ---
 
-## 📖 Table of Contents
-- [Introduction](#-introduction)
-- [Key Features](#-key-features)
-- [Architecture](#-architecture)
-- [Performance](#-performance)
-- [Installation](#-installation)
-- [Usage Examples](#-usage-examples)
-- [Configuration Reference](#-configuration-reference)
-- [Dynamic Tokens](#-dynamic-tokens)
-- [Development & Testing](#-development--testing)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
-- [Community & Support](#-community--support)
-- [Sponsor & Support](#-sponsor--support)
-- [License](#-license)
-
----
 
 ## 🌟 Introduction
 
@@ -259,30 +240,13 @@ Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
 
 ---
 
-## 💖 Sponsor & Support
-
-If you find **Deskstamp** helpful for your screen recordings, streams, or desktop setup, please consider sponsoring or buying me a coffee to support active development:
-
-<p align="center">
-  <a href="https://github.com/sponsors/GabrielBaiano" target="_blank">
-    <img src="https://img.shields.io/badge/Sponsor%20on-GitHub%20Sponsors-ea4aaa?style=for-the-badge&logo=github-sponsors" alt="Sponsor on GitHub" height="40"/>
-  </a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://buymeacoffee.com/gabrielngal" target="_blank">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40"/>
-  </a>
-</p>
-
----
 
 ## 📄 License
 
 Distributed under the **GPL-3.0-or-later** License. See `LICENSE` for more information.
 
 ---
-<p align="center">
-  Want to support Deskstamp? <a href="https://github.com/sponsors/GabrielBaiano">Sponsor on GitHub</a> or <a href="https://buymeacoffee.com/gabrielngal">Buy me a coffee!</a>
-</p>
+
 <p align="center">
   Made with ❤️ and the help of <a href="https://github.com/GabrielBaiano/awesome-readme">Awesome-Readme</a> by <a href="https://github.com/GabrielBaiano">Gabriel Baiano</a>
 </p>
