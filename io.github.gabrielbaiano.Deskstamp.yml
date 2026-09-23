@@ -26,12 +26,9 @@ build-options:
     CARGO_HOME: /run/build/deskstamp/cargo
 
 modules:
-  - cargo-sources.json
-
   - name: deskstamp
     buildsystem: simple
     build-commands:
-      - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --verbose
       - install -Dm755 target/release/deskstamp /app/bin/deskstamp
       - install -Dm644 data/io.github.gabrielbaiano.Deskstamp.desktop /app/share/applications/io.github.gabrielbaiano.Deskstamp.desktop
@@ -39,5 +36,8 @@ modules:
       - install -Dm644 data/icons/hicolor/scalable/apps/io.github.gabrielbaiano.Deskstamp.svg /app/share/icons/hicolor/scalable/apps/io.github.gabrielbaiano.Deskstamp.svg
       - for size in 16 24 32 48 64 128 256 512; do install -Dm644 data/icons/hicolor/${size}x${size}/apps/io.github.gabrielbaiano.Deskstamp.png /app/share/icons/hicolor/${size}x${size}/apps/io.github.gabrielbaiano.Deskstamp.png; done
     sources:
-      - type: dir
-        path: .
+      - type: git
+        url: https://github.com/GabrielBaiano/Deskstamp.git
+        tag: v0.1.0
+        commit: e59c559abaa963b5fed59ee738b47a3d1e50f685
+      - cargo-sources.json
