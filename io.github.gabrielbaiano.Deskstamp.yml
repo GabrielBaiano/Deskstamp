@@ -39,5 +39,5 @@ modules:
       - type: git
         url: https://github.com/GabrielBaiano/Deskstamp.git
         tag: v0.1.0
-        commit: e59c559abaa963b5fed59ee738b47a3d1e50f685
+        commit: 4b548b6906ffbe33493524d4cc8ccb8d6d136c8b
       - cargo-sources.json
