@@ -136,10 +136,20 @@ impl CosmarkApp {
 
             self.renderer.render_to_buffer(canvas, width, height, stride, &self.config);
 
+            // Convert tiny-skia's RGBA pixel buffer to Wayland wl_shm ARGB8888 (little-endian BGRA in memory)
+            for chunk in canvas.chunks_exact_mut(4) {
+                chunk.swap(0, 2);
+            }
+
             let wl_surf = item.layer_surface.wl_surface();
             buffer.attach_to(wl_surf).expect("attach buffer");
             wl_surf.damage_buffer(0, 0, width as i32, height as i32);
             item.layer_surface.commit();
+        }
+
+        if self.config.obs_source_export || self.config.stealth_mode {
+            let (w, h) = self.outputs.first().map(|o| (o.width, o.height)).unwrap_or((1920, 1080));
+            self.renderer.export_obs_overlay(w, h, &self.config);
         }
 
         self.frame_counter += 1;

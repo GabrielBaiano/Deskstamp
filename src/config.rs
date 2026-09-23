@@ -72,6 +72,9 @@ pub struct WatermarkConfig {
     #[serde(default = "default_image_scale")]
     pub image_scale: f32,
 
+    #[serde(default = "default_image_size")]
+    pub image_size: f32,
+
     #[serde(default = "default_font_family")]
     pub font_family: String,
 
@@ -143,6 +146,7 @@ fn default_diagonal_spacing() -> f32 { 240.0 }
 fn default_mode() -> String { "text".to_string() }
 fn default_image_path() -> Option<String> { None }
 fn default_image_scale() -> f32 { 1.0 }
+fn default_image_size() -> f32 { 28.0 }
 fn default_font_family() -> String { "Liberation Sans".to_string() }
 fn default_font_path() -> Option<String> { None }
 fn default_active() -> bool { true }
@@ -174,6 +178,7 @@ impl Default for WatermarkConfig {
             mode: default_mode(),
             image_path: default_image_path(),
             image_scale: default_image_scale(),
+            image_size: default_image_size(),
             font_family: default_font_family(),
             font_path: default_font_path(),
             active: default_active(),

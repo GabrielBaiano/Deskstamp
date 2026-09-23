@@ -68,12 +68,30 @@ impl WatermarkRenderer {
         }
     }
 
-    /// Loads or scales a logo / image tile, optionally tinting it monochrome to match text color
-    fn load_image_tile(&self, path: Option<&str>, scale: f32, monochrome: bool, tint_color: [u8; 4]) -> Pixmap {
+    /// Loads or scales a logo / image tile, optionally tinting it monochrome to match text color.
+    /// target_pixel_size specifies the bounding box dimension in pixels.
+    fn load_image_tile(&self, path: Option<&str>, target_pixel_size: f32, monochrome: bool, tint_color: [u8; 4]) -> Pixmap {
         let base_pix = if let Some(p) = path {
             std::fs::read(p)
                 .ok()
-                .and_then(|data| Pixmap::decode_png(&data).ok())
+                .and_then(|data| {
+                    if let Ok(img) = image::load_from_memory(&data) {
+                        let rgba = img.to_rgba8();
+                        let (w, h) = rgba.dimensions();
+                        if w == 0 || h == 0 { return None; }
+                        let mut raw = rgba.into_raw();
+                        // Premultiply alpha for tiny-skia
+                        for chunk in raw.chunks_exact_mut(4) {
+                            let a = chunk[3] as u32;
+                            chunk[0] = ((chunk[0] as u32 * a) / 255) as u8;
+                            chunk[1] = ((chunk[1] as u32 * a) / 255) as u8;
+                            chunk[2] = ((chunk[2] as u32 * a) / 255) as u8;
+                        }
+                        tiny_skia::Pixmap::from_vec(raw, tiny_skia::IntSize::from_wh(w, h)?)
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or_else(|| {
                     static LOGO: &[u8] = include_bytes!("../data/icons/hicolor/128x128/apps/io.github.gabrielbaiano.Deskstamp.png");
                     Pixmap::decode_png(LOGO).unwrap()
@@ -83,23 +101,21 @@ impl WatermarkRenderer {
             Pixmap::decode_png(LOGO).unwrap()
         };
 
-        let s = scale.clamp(0.1, 5.0);
-        let mut pix = if (s - 1.0).abs() > 0.05 {
-            let nw = ((base_pix.width() as f32 * s).round() as u32).max(12);
-            let nh = ((base_pix.height() as f32 * s).round() as u32).max(12);
-            let mut scaled = Pixmap::new(nw, nh).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
-            scaled.draw_pixmap(
-                0,
-                0,
-                base_pix.as_ref(),
-                &PixmapPaint::default(),
-                Transform::from_scale(s, s),
-                None,
-            );
-            scaled
-        } else {
-            base_pix
-        };
+        let target = target_pixel_size.clamp(8.0, 512.0);
+        let max_dim = (base_pix.width().max(base_pix.height()) as f32).max(1.0);
+        let s = target / max_dim;
+        let nw = ((base_pix.width() as f32 * s).round() as u32).max(4);
+        let nh = ((base_pix.height() as f32 * s).round() as u32).max(4);
+
+        let mut pix = Pixmap::new(nw, nh).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
+        pix.draw_pixmap(
+            0,
+            0,
+            base_pix.as_ref(),
+            &PixmapPaint { quality: FilterQuality::Bilinear, ..Default::default() },
+            Transform::from_scale(s, s),
+            None,
+        );
 
         if monochrome {
             for pixel in pix.pixels_mut() {
@@ -202,7 +218,9 @@ impl WatermarkRenderer {
         (pixmap, tile_w as f32, tile_h as f32)
     }
 
-    /// Renders repeated watermark grid and vertical lines over the output buffer
+    /// Renders repeated watermark grid and vertical lines over the output buffer.
+    /// In stealth mode, the desktop buffer is filled with 0 (completely invisible on screen),
+    /// while the OBS overlay is exported for recording capture.
     pub fn render_to_buffer(
         &self,
         buffer: &mut [u8],
@@ -211,7 +229,7 @@ impl WatermarkRenderer {
         _stride: u32,
         cfg: &WatermarkConfig,
     ) {
-        if !cfg.active || cfg.opacity <= 0.001 {
+        if !cfg.active || cfg.opacity <= 0.001 || cfg.stealth_mode {
             buffer.fill(0);
             return;
         }
@@ -222,6 +240,40 @@ impl WatermarkRenderer {
         };
         pixmap.fill(Color::TRANSPARENT);
 
+        self.draw_watermark_elements(&mut pixmap, width, height, cfg);
+    }
+
+    /// Exports clean transparent PNG overlay for OBS Studio / video recording tools
+    pub fn export_obs_overlay(&self, width: u32, height: u32, cfg: &WatermarkConfig) {
+        if !cfg.active {
+            return;
+        }
+        let w = width.max(1280);
+        let h = height.max(720);
+        let mut obs_pixmap = match Pixmap::new(w, h) {
+            Some(p) => p,
+            None => return,
+        };
+        obs_pixmap.fill(Color::TRANSPARENT);
+
+        let mut obs_cfg = cfg.clone();
+        obs_cfg.stealth_mode = false;
+        if obs_cfg.opacity < 0.20 {
+            obs_cfg.opacity = 0.40;
+        }
+
+        let mut mut_ref = obs_pixmap.as_mut();
+        self.draw_watermark_elements(&mut mut_ref, w, h, &obs_cfg);
+        let _ = obs_pixmap.save_png("/tmp/deskstamp_obs_overlay.png");
+    }
+
+    fn draw_watermark_elements(
+        &self,
+        pixmap: &mut PixmapMut,
+        width: u32,
+        height: u32,
+        cfg: &WatermarkConfig,
+    ) {
         let step_x = cfg.spacing_x.max(100.0);
         let step_y = cfg.spacing_y.max(50.0);
 
@@ -355,11 +407,14 @@ impl WatermarkRenderer {
         };
 
         let (icon_tile, icon_w, icon_h) = if should_show_icon {
-            // Scale icon proportionally to match font size and image_scale
-            let base_scale = (cfg.font_size / 24.0).clamp(0.2, 4.0) * cfg.image_scale;
+            let target_pixels = if cfg.image_size > 0.0 {
+                cfg.image_size
+            } else {
+                (cfg.font_size * 1.5).max(16.0) * cfg.image_scale
+            };
             let img = self.load_image_tile(
                 cfg.image_path.as_deref(),
-                base_scale,
+                target_pixels,
                 cfg.monochrome_icon,
                 cfg.color_rgba,
             );
@@ -448,12 +503,7 @@ impl WatermarkRenderer {
         };
 
         let mut paint = PixmapPaint::default();
-        let eff_opacity = if cfg.stealth_mode {
-            0.015 // Stealth mode: invisible to naked eye, present in recorded videos
-        } else {
-            cfg.opacity
-        };
-        paint.opacity = eff_opacity.clamp(0.0, 1.0);
+        paint.opacity = cfg.opacity.clamp(0.0, 1.0);
         paint.quality = FilterQuality::Bilinear;
 
         let cx = width as f32 * 0.5;

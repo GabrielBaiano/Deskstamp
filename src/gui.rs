@@ -83,6 +83,11 @@ impl SettingsApp {
 
     fn notify_daemon(&mut self) {
         let _ = self.config.save();
+        if self.config.obs_source_export || self.config.stealth_mode {
+            if let Ok(renderer) = crate::renderer::WatermarkRenderer::new(self.config.font_path.as_deref()) {
+                renderer.export_obs_overlay(1920, 1080, &self.config);
+            }
+        }
         if self.daemon_running {
             let _ = send_command(&IpcCommand::Reload);
         } else {
@@ -223,7 +228,7 @@ impl eframe::App for SettingsApp {
 
                         ui.separator();
 
-                        cosmic_row(ui, "Stealth Mode (Videos & Streams Only)", Some("Nearly invisible to your eyes, but captured in recorded videos"), |ui| {
+                        cosmic_row(ui, "Stealth Mode (Videos & Streams Only)", Some("0% on screen (completely invisible to you), active on OBS/recordings"), |ui| {
                             if cosmic_switch(ui, &mut self.config.stealth_mode).changed() {
                                 changed = true;
                             }
@@ -372,10 +377,9 @@ impl eframe::App for SettingsApp {
                             });
 
                             ui.separator();
-                            cosmic_row(ui, "Icon Size", Some("Scale of custom or built-in icon"), |ui| {
-                                let mut scale_pct = self.config.image_scale * 100.0;
-                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut scale_pct, 20.0..=300.0).suffix("%")).changed() {
-                                    self.config.image_scale = scale_pct / 100.0;
+                            cosmic_row(ui, "Icon Size", Some("Size in pixels (bounding box)"), |ui| {
+                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.image_size, 12.0..=256.0).suffix(" px")).changed() {
+                                    self.config.image_scale = self.config.image_size / 28.0;
                                     changed = true;
                                 }
                             });
@@ -455,7 +459,7 @@ impl eframe::App for SettingsApp {
                         );
 
                         let text_w = sample_text.len() as f32 * 7.5;
-                        let icon_w = if self.config.show_icon { 16.0 } else { 0.0 };
+                        let icon_w = if self.config.show_icon { (self.config.image_size * 0.6).clamp(10.0, 32.0) } else { 0.0 };
                         let icon_gap = if self.config.show_icon && self.config.show_text && !sample_text.is_empty() { 8.0 } else { 0.0 };
                         let total_content_w = icon_w + icon_gap + text_w;
 
@@ -474,7 +478,8 @@ impl eframe::App for SettingsApp {
 
                         let mut cx = center.x - total_content_w * 0.5;
                         if self.config.show_icon {
-                            painter.circle_filled(egui::pos2(cx + 8.0, center.y), 6.0, col);
+                            let icon_r = (icon_w * 0.45).clamp(4.0, 15.0);
+                            painter.circle_filled(egui::pos2(cx + icon_w * 0.5, center.y), icon_r, col);
                             cx += icon_w + icon_gap;
                         }
 
@@ -486,6 +491,14 @@ impl eframe::App for SettingsApp {
                                 egui::FontId::proportional(14.0),
                                 col,
                             );
+                        }
+
+                        if self.config.stealth_mode {
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.colored_label(egui::Color32::from_rgb(233, 84, 32), "ℹ Stealth Active:");
+                                ui.label(egui::RichText::new("Screen is 100% invisible • OBS layer exported to /tmp/deskstamp_obs_overlay.png").weak().size(11.0));
+                            });
                         }
                     });
 

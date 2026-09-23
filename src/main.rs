@@ -53,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let output_file = args.get(2).map(|s| s.as_str()).unwrap_or("deskstamp_preview.png");
             let mut cfg = WatermarkConfig::load();
             cfg.active = true;
+            cfg.stealth_mode = false;
             let renderer = WatermarkRenderer::new(cfg.font_path.as_deref())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
 
