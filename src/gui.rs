@@ -501,7 +501,7 @@ impl eframe::App for SettingsApp {
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 10.0);
                         ui.horizontal(|ui| {
                             if let Some(logo) = &self.logo {
-                                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(40.0, 40.0)));
+                                ui.image(egui::load::SizedTexture::new(logo.id(), egui::vec2(44.0, 44.0)));
                             }
                             ui.vertical(|ui| {
                                 ui.label(egui::RichText::new("Deskstamp").strong().size(18.0).color(egui::Color32::WHITE));
@@ -512,7 +512,48 @@ impl eframe::App for SettingsApp {
                         ui.separator();
                         ui.label("Lightweight, click-through desktop security watermark overlay designed natively for Wayland and Pop!_OS COSMIC.");
                         ui.add_space(4.0);
-                        ui.label(egui::RichText::new("Version: 0.1.0").weak());
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Version:").strong());
+                            ui.label(egui::RichText::new("0.1.0").weak());
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("License:").strong());
+                            ui.label(egui::RichText::new("GPL-3.0").weak());
+                        });
+
+                        ui.add_space(6.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        ui.label(egui::RichText::new("Community & Support").strong().size(13.0).color(egui::Color32::WHITE));
+
+                        ui.horizontal(|ui| {
+                            let issue_btn = egui::Button::new(
+                                egui::RichText::new("🐛 Report an Issue / Bug")
+                                    .color(egui::Color32::WHITE)
+                                    .size(13.0),
+                            )
+                            .fill(egui::Color32::from_rgb(233, 84, 32))
+                            .corner_radius(egui::CornerRadius::same(6));
+
+                            if ui.add(issue_btn).on_hover_text("Open issue tracker on GitHub").clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab("https://github.com/GabrielBaiano/Deskstamp/issues/new/choose"));
+                            }
+
+                            let repo_btn = egui::Button::new(
+                                egui::RichText::new("⭐ GitHub Repository")
+                                    .color(egui::Color32::from_rgb(225, 230, 240))
+                                    .size(13.0),
+                            )
+                            .fill(egui::Color32::from_rgb(45, 48, 58))
+                            .corner_radius(egui::CornerRadius::same(6));
+
+                            if ui.add(repo_btn).on_hover_text("Visit Deskstamp repository").clicked() {
+                                ui.ctx().open_url(egui::OpenUrl::new_tab("https://github.com/GabrielBaiano/Deskstamp"));
+                            }
+                        });
                     });
                 }
             });
