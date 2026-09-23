@@ -92,6 +92,13 @@ impl ksni::Tray for DeskstampTray {
                         if let Ok(renderer) = crate::renderer::WatermarkRenderer::new(cfg.font_path.as_deref()) {
                             renderer.export_obs_overlay(1920, 1080, &cfg);
                         }
+                        let _ = std::process::Command::new("notify-send")
+                            .args(["-a", "Deskstamp", "Deskstamp: Stream Only Ativo", "Tela limpa (0%). Adicione a imagem no OBS:\n/tmp/deskstamp_obs_overlay.png"])
+                            .spawn();
+                    } else {
+                        let _ = std::process::Command::new("notify-send")
+                            .args(["-a", "Deskstamp", "Deskstamp: Stream Only Desativado", "Marca d'água restaurada na área de trabalho."])
+                            .spawn();
                     }
                     let _ = send_command(&IpcCommand::Reload);
                 }),

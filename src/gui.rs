@@ -228,11 +228,25 @@ impl eframe::App for SettingsApp {
 
                         ui.separator();
 
-                        cosmic_row(ui, "Stealth Mode (Videos & Streams Only)", Some("0% on screen (completely invisible to you), active on OBS/recordings"), |ui| {
+                        cosmic_row(ui, "Stream Only (OBS & Recordings)", Some("0% on screen (invisible to you). Overlays via OBS Studio Image source"), |ui| {
                             if cosmic_switch(ui, &mut self.config.stealth_mode).changed() {
                                 changed = true;
                             }
                         });
+
+                        if self.config.stealth_mode {
+                            ui.separator();
+                            cosmic_row(ui, "OBS Overlay Source", Some("Path: /tmp/deskstamp_obs_overlay.png"), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("📋 Copy OBS Path").clicked() {
+                                        ui.ctx().copy_text("/tmp/deskstamp_obs_overlay.png".to_string());
+                                    }
+                                    if ui.button("👁 View Overlay Image").clicked() {
+                                        open_browser("file:///tmp/deskstamp_obs_overlay.png");
+                                    }
+                                });
+                            });
+                        }
                     });
 
                     // Card 2: Appearance & Geometry
