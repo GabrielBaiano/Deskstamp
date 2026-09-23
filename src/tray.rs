@@ -80,14 +80,19 @@ impl ksni::Tray for DeskstampTray {
 
             MenuItem::Separator,
 
-            // 2. Lines Alongside Text Toggle
+            // 2. Stream Only Toggle (Stealth Mode)
             CheckmarkItem {
-                label: "Lines Alongside Text".into(),
-                checked: cfg.show_lines_next_to_text,
+                label: "Stream Only".into(),
+                checked: cfg.stealth_mode,
                 activate: Box::new(|_| {
                     let mut cfg = WatermarkConfig::load();
-                    cfg.show_lines_next_to_text = !cfg.show_lines_next_to_text;
+                    cfg.stealth_mode = !cfg.stealth_mode;
                     let _ = cfg.save();
+                    if cfg.stealth_mode {
+                        if let Ok(renderer) = crate::renderer::WatermarkRenderer::new(cfg.font_path.as_deref()) {
+                            renderer.export_obs_overlay(1920, 1080, &cfg);
+                        }
+                    }
                     let _ = send_command(&IpcCommand::Reload);
                 }),
                 ..Default::default()
