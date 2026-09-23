@@ -218,9 +218,7 @@ impl WatermarkRenderer {
         (pixmap, tile_w as f32, tile_h as f32)
     }
 
-    /// Renders repeated watermark grid and vertical lines over the output buffer.
-    /// In stealth mode, the desktop buffer is filled with 0 (completely invisible on screen),
-    /// while the OBS overlay is exported for recording capture.
+    /// Renders repeated watermark grid and vertical lines over the output buffer
     pub fn render_to_buffer(
         &self,
         buffer: &mut [u8],
@@ -229,7 +227,7 @@ impl WatermarkRenderer {
         _stride: u32,
         cfg: &WatermarkConfig,
     ) {
-        if !cfg.active || cfg.opacity <= 0.001 || cfg.stealth_mode {
+        if !cfg.active || cfg.opacity <= 0.001 {
             buffer.fill(0);
             return;
         }
@@ -243,29 +241,6 @@ impl WatermarkRenderer {
         self.draw_watermark_elements(&mut pixmap, width, height, cfg);
     }
 
-    /// Exports clean transparent PNG overlay for OBS Studio / video recording tools
-    pub fn export_obs_overlay(&self, width: u32, height: u32, cfg: &WatermarkConfig) {
-        if !cfg.active {
-            return;
-        }
-        let w = width.max(1280);
-        let h = height.max(720);
-        let mut obs_pixmap = match Pixmap::new(w, h) {
-            Some(p) => p,
-            None => return,
-        };
-        obs_pixmap.fill(Color::TRANSPARENT);
-
-        let mut obs_cfg = cfg.clone();
-        obs_cfg.stealth_mode = false;
-        if obs_cfg.opacity < 0.20 {
-            obs_cfg.opacity = 0.40;
-        }
-
-        let mut mut_ref = obs_pixmap.as_mut();
-        self.draw_watermark_elements(&mut mut_ref, w, h, &obs_cfg);
-        let _ = obs_pixmap.save_png("/tmp/deskstamp_obs_overlay.png");
-    }
 
     fn draw_watermark_elements(
         &self,

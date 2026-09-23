@@ -147,11 +147,6 @@ impl CosmarkApp {
             item.layer_surface.commit();
         }
 
-        if self.config.obs_source_export || self.config.stealth_mode {
-            let (w, h) = self.outputs.first().map(|o| (o.width, o.height)).unwrap_or((1920, 1080));
-            self.renderer.export_obs_overlay(w, h, &self.config);
-        }
-
         self.frame_counter += 1;
     }
 }

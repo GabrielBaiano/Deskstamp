@@ -83,11 +83,6 @@ impl SettingsApp {
 
     fn notify_daemon(&mut self) {
         let _ = self.config.save();
-        if self.config.obs_source_export || self.config.stealth_mode {
-            if let Ok(renderer) = crate::renderer::WatermarkRenderer::new(self.config.font_path.as_deref()) {
-                renderer.export_obs_overlay(1920, 1080, &self.config);
-            }
-        }
         if self.daemon_running {
             let _ = send_command(&IpcCommand::Reload);
         } else {
@@ -225,29 +220,8 @@ impl eframe::App for SettingsApp {
                                 }
                             }
                         });
-
-                        ui.separator();
-
-                        cosmic_row(ui, "Stream Only (OBS & Recordings)", Some("0% on screen (invisible to you). Overlays via OBS Studio Image source"), |ui| {
-                            if cosmic_switch(ui, &mut self.config.stealth_mode).changed() {
-                                changed = true;
-                            }
-                        });
-
-                        if self.config.stealth_mode {
-                            ui.separator();
-                            cosmic_row(ui, "OBS Overlay Source", Some("Path: /tmp/deskstamp_obs_overlay.png"), |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.button("📋 Copy OBS Path").clicked() {
-                                        ui.ctx().copy_text("/tmp/deskstamp_obs_overlay.png".to_string());
-                                    }
-                                    if ui.button("👁 View Overlay Image").clicked() {
-                                        open_browser("file:///tmp/deskstamp_obs_overlay.png");
-                                    }
-                                });
-                            });
-                        }
                     });
+
 
                     // Card 2: Appearance & Geometry
                     let card2 = egui::Frame::new()
@@ -506,15 +480,8 @@ impl eframe::App for SettingsApp {
                                 col,
                             );
                         }
-
-                        if self.config.stealth_mode {
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                ui.colored_label(egui::Color32::from_rgb(233, 84, 32), "ℹ Stealth Active:");
-                                ui.label(egui::RichText::new("Screen is 100% invisible • OBS layer exported to /tmp/deskstamp_obs_overlay.png").weak().size(11.0));
-                            });
-                        }
                     });
+
 
                 } else {
                     // About Tab

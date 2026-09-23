@@ -54,7 +54,6 @@ impl ksni::Tray for DeskstampTray {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        let cfg = WatermarkConfig::load();
         let is_active = self.active.load(Ordering::Relaxed);
 
         vec![
@@ -80,34 +79,7 @@ impl ksni::Tray for DeskstampTray {
 
             MenuItem::Separator,
 
-            // 2. Stream Only Toggle (Stealth Mode)
-            CheckmarkItem {
-                label: "Stream Only".into(),
-                checked: cfg.stealth_mode,
-                activate: Box::new(|_| {
-                    let mut cfg = WatermarkConfig::load();
-                    cfg.stealth_mode = !cfg.stealth_mode;
-                    let _ = cfg.save();
-                    if cfg.stealth_mode {
-                        if let Ok(renderer) = crate::renderer::WatermarkRenderer::new(cfg.font_path.as_deref()) {
-                            renderer.export_obs_overlay(1920, 1080, &cfg);
-                        }
-                        let _ = std::process::Command::new("notify-send")
-                            .args(["-a", "Deskstamp", "Deskstamp: Stream Only Ativo", "Tela limpa (0%). Adicione a imagem no OBS:\n/tmp/deskstamp_obs_overlay.png"])
-                            .spawn();
-                    } else {
-                        let _ = std::process::Command::new("notify-send")
-                            .args(["-a", "Deskstamp", "Deskstamp: Stream Only Desativado", "Marca d'água restaurada na área de trabalho."])
-                            .spawn();
-                    }
-                    let _ = send_command(&IpcCommand::Reload);
-                }),
-                ..Default::default()
-            }.into(),
-
-            MenuItem::Separator,
-
-            // 3. Settings Window
+            // 2. Settings Window
             StandardItem {
                 label: "Settings...".into(),
                 activate: Box::new(|_| {
@@ -117,6 +89,7 @@ impl ksni::Tray for DeskstampTray {
                 }),
                 ..Default::default()
             }.into(),
+
 
             MenuItem::Separator,
 
