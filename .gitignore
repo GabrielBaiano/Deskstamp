@@ -4,3 +4,6 @@
 test*.png
 preview_ci.png
 !data/icons/
+*.deb
+*.tar.gz
+SHA256SUMS.txt

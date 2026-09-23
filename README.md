@@ -106,28 +106,29 @@ Deskstamp is engineered in Rust for minimal footprint:
 
 ## 📦 Installation
 
-### Prerequisites
-- **Operating System**: Linux with Wayland compositor supporting `wlr-layer-shell` (Pop!_OS COSMIC, Sway, Hyprland, Wayfire).
-- **Toolchain**: Rust & Cargo (1.80 or newer).
-
-### Build from Source
+### 1. Debian / Pop!_OS / Ubuntu (`.deb`)
+Download and install the native `.deb` package from the [Releases page](https://github.com/GabrielBaiano/Deskstamp/releases):
 ```bash
-# 1. Clone the repository
-git clone https://github.com/GabrielBaiano/Deskstamp.git
-
-# 2. Navigate to project directory
-cd Deskstamp
-
-# 3. Build release binary
-cargo build --release
-
-# 4. (Optional) Install to /usr/local/bin
-sudo install -Dm755 target/release/deskstamp /usr/local/bin/deskstamp
+# Download and install via apt
+wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp_0.1.0_amd64.deb
+sudo apt install ./deskstamp_0.1.0_amd64.deb
 ```
 
-### Flatpak
+### 2. Standalone Tarball (Any Linux x86_64)
 ```bash
-flatpak-builder --user --install --force-clean build-dir io.github.gabrielbaiano.Deskstamp.json
+wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf deskstamp-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
+cd deskstamp-v0.1.0-x86_64-unknown-linux-gnu
+./install.sh
+```
+
+### 3. Build from Source
+```bash
+# Clone and build with Cargo
+git clone https://github.com/GabrielBaiano/Deskstamp.git
+cd Deskstamp
+cargo build --release
+install -Dm755 target/release/deskstamp ~/.local/bin/deskstamp
 ```
 
 ---
