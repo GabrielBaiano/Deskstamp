@@ -553,6 +553,7 @@ impl eframe::App for SettingsApp {
 
                             if ui.add(issue_btn).on_hover_text("Open issue tracker on GitHub").clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab("https://github.com/GabrielBaiano/Deskstamp/issues/new/choose"));
+                                open_browser("https://github.com/GabrielBaiano/Deskstamp/issues/new/choose");
                             }
 
                             let repo_btn = egui::Button::new(
@@ -565,6 +566,7 @@ impl eframe::App for SettingsApp {
 
                             if ui.add(repo_btn).on_hover_text("Visit Deskstamp repository").clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab("https://github.com/GabrielBaiano/Deskstamp"));
+                                open_browser("https://github.com/GabrielBaiano/Deskstamp");
                             }
                         });
                     });
@@ -624,3 +626,11 @@ pub fn load_logo_texture(ctx: &egui::Context) -> egui::TextureHandle {
     );
     ctx.load_texture("deskstamp_logo", color_image, egui::TextureOptions::LINEAR)
 }
+
+fn open_browser(url: &str) {
+    let _ = std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .or_else(|_| std::process::Command::new("gio").args(["open", url]).spawn());
+}
+
