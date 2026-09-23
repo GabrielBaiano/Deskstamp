@@ -96,6 +96,15 @@ pub struct WatermarkConfig {
     #[serde(default = "default_line_gap")]
     pub line_gap: f32,
 
+    #[serde(default = "default_monochrome_icon")]
+    pub monochrome_icon: bool,
+
+    #[serde(default = "default_stealth_mode")]
+    pub stealth_mode: bool,
+
+    #[serde(default = "default_obs_source_export")]
+    pub obs_source_export: bool,
+
     #[serde(default = "default_update_interval")]
     pub update_interval_secs: u64,
 }
@@ -105,6 +114,9 @@ fn default_show_icon() -> bool { true }
 fn default_show_lines_next_to_text() -> bool { true }
 fn default_line_length() -> f32 { 60.0 }
 fn default_line_gap() -> f32 { 14.0 }
+fn default_monochrome_icon() -> bool { false }
+fn default_stealth_mode() -> bool { false }
+fn default_obs_source_export() -> bool { true }
 
 fn default_text() -> String {
     "CONFIDENTIAL • {user}@{hostname} • {time:%H:%M:%S}".to_string()
@@ -170,6 +182,9 @@ impl Default for WatermarkConfig {
             show_lines_next_to_text: default_show_lines_next_to_text(),
             line_length: default_line_length(),
             line_gap: default_line_gap(),
+            monochrome_icon: default_monochrome_icon(),
+            stealth_mode: default_stealth_mode(),
+            obs_source_export: default_obs_source_export(),
             update_interval_secs: default_update_interval(),
         }
     }

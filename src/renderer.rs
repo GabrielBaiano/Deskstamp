@@ -68,8 +68,8 @@ impl WatermarkRenderer {
         }
     }
 
-    /// Loads or scales a logo / image tile
-    fn load_image_tile(&self, path: Option<&str>, scale: f32) -> Pixmap {
+    /// Loads or scales a logo / image tile, optionally tinting it monochrome to match text color
+    fn load_image_tile(&self, path: Option<&str>, scale: f32, monochrome: bool, tint_color: [u8; 4]) -> Pixmap {
         let base_pix = if let Some(p) = path {
             std::fs::read(p)
                 .ok()
@@ -83,8 +83,8 @@ impl WatermarkRenderer {
             Pixmap::decode_png(LOGO).unwrap()
         };
 
-        let s = scale.clamp(0.2, 5.0);
-        if (s - 1.0).abs() > 0.05 {
+        let s = scale.clamp(0.1, 5.0);
+        let mut pix = if (s - 1.0).abs() > 0.05 {
             let nw = ((base_pix.width() as f32 * s).round() as u32).max(12);
             let nh = ((base_pix.height() as f32 * s).round() as u32).max(12);
             let mut scaled = Pixmap::new(nw, nh).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
@@ -99,7 +99,21 @@ impl WatermarkRenderer {
             scaled
         } else {
             base_pix
+        };
+
+        if monochrome {
+            for pixel in pix.pixels_mut() {
+                let a = pixel.alpha();
+                if a > 0 {
+                    let r = ((tint_color[0] as u32 * a as u32) / 255) as u8;
+                    let g = ((tint_color[1] as u32 * a as u32) / 255) as u8;
+                    let b = ((tint_color[2] as u32 * a as u32) / 255) as u8;
+                    *pixel = PremultipliedColorU8::from_rgba(r, g, b, a).unwrap_or(PremultipliedColorU8::TRANSPARENT);
+                }
+            }
         }
+
+        pix
     }
 
     /// Renders text glyphs onto an RGBA Pixmap tile
@@ -341,9 +355,14 @@ impl WatermarkRenderer {
         };
 
         let (icon_tile, icon_w, icon_h) = if should_show_icon {
-            // Scale icon proportionally to match font size
-            let base_scale = (cfg.font_size / 24.0).clamp(0.4, 3.0) * cfg.image_scale;
-            let img = self.load_image_tile(cfg.image_path.as_deref(), base_scale);
+            // Scale icon proportionally to match font size and image_scale
+            let base_scale = (cfg.font_size / 24.0).clamp(0.2, 4.0) * cfg.image_scale;
+            let img = self.load_image_tile(
+                cfg.image_path.as_deref(),
+                base_scale,
+                cfg.monochrome_icon,
+                cfg.color_rgba,
+            );
             let w = img.width() as f32;
             let h = img.height() as f32;
             (Some(img), w, h)
@@ -429,45 +448,41 @@ impl WatermarkRenderer {
         };
 
         let mut paint = PixmapPaint::default();
-        paint.opacity = cfg.opacity.clamp(0.0, 1.0);
+        let eff_opacity = if cfg.stealth_mode {
+            0.015 // Stealth mode: invisible to naked eye, present in recorded videos
+        } else {
+            cfg.opacity
+        };
+        paint.opacity = eff_opacity.clamp(0.0, 1.0);
         paint.quality = FilterQuality::Bilinear;
 
+        let cx = width as f32 * 0.5;
+        let cy = height as f32 * 0.5;
         let diag = ((width * width + height * height) as f32).sqrt();
 
-        // If angle is 0, align directly with the vertical columns
-        if cfg.angle_deg.abs() < 0.1 {
-            let mut x = (step_x * 0.5) as f32;
-            let mut col = 0;
-            while x < width as f32 + 100.0 {
-                let col_offset = if col % 2 == 1 { cfg.stagger_offset } else { 0.0 };
-                let mut y = 40.0 + col_offset;
-                while y < height as f32 + 100.0 {
-                    let transform = Transform::from_translate(x - tile_w * 0.5, y - tile_h * 0.5);
-                    pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
-                    y += step_y;
-                }
-                x += step_x;
-                col += 1;
-            }
-        } else {
-            // Diagonal grid iteration
-            let mut row_idx = 0;
-            let mut y = -diag * 0.3;
-            while y < height as f32 + diag * 0.3 {
-                let row_offset = if row_idx % 2 == 1 { cfg.stagger_offset } else { 0.0 };
-                let mut x = -diag * 0.3 + row_offset;
+        let rad = cfg.angle_deg.to_radians();
+        let cos = rad.cos();
+        let sin = rad.sin();
 
-                while x < width as f32 + diag * 0.3 {
-                    let transform = Transform::from_translate(x, y)
-                        .post_rotate(cfg.angle_deg)
-                        .post_translate(-tile_w * 0.5, -tile_h * 0.5);
+        // Infinite rotated grid iteration covering the full screen bounds at any angle
+        let mut v = -diag;
+        let mut row_idx = 0;
+        while v <= diag + step_y {
+            let u_offset = if row_idx % 2 == 1 { cfg.stagger_offset } else { 0.0 };
+            let mut u = -diag + u_offset;
+            while u <= diag + step_x {
+                let sx = cx + u * cos - v * sin;
+                let sy = cy + u * sin + v * cos;
 
-                    pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
-                    x += step_x;
-                }
-                y += step_y;
-                row_idx += 1;
+                let transform = Transform::from_translate(sx, sy)
+                    .pre_rotate(cfg.angle_deg)
+                    .pre_translate(-tile_w * 0.5, -tile_h * 0.5);
+
+                pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
+                u += step_x;
             }
+            v += step_y;
+            row_idx += 1;
         }
     }
 }

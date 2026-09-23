@@ -220,6 +220,14 @@ impl eframe::App for SettingsApp {
                                 }
                             }
                         });
+
+                        ui.separator();
+
+                        cosmic_row(ui, "Stealth Mode (Videos & Streams Only)", Some("Nearly invisible to your eyes, but captured in recorded videos"), |ui| {
+                            if cosmic_switch(ui, &mut self.config.stealth_mode).changed() {
+                                changed = true;
+                            }
+                        });
                     });
 
                     // Card 2: Appearance & Geometry
@@ -263,7 +271,7 @@ impl eframe::App for SettingsApp {
                         ui.separator();
 
                         // Font Size / Scale
-                        cosmic_row(ui, "Size", Some("Font size and proportional icon scale"), |ui| {
+                        cosmic_row(ui, "Size", Some("Font size of watermark text"), |ui| {
                             if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.font_size, 10.0..=64.0).suffix(" px")).changed() {
                                 changed = true;
                             }
@@ -285,7 +293,7 @@ impl eframe::App for SettingsApp {
                         ui.separator();
 
                         // Text Color
-                        cosmic_row(ui, "Color", Some("Watermark text and framing lines color"), |ui| {
+                        cosmic_row(ui, "Color", Some("Watermark text, lines, and monochrome logo color"), |ui| {
                             let mut c = [
                                 self.config.color_rgba[0] as f32 / 255.0,
                                 self.config.color_rgba[1] as f32 / 255.0,
@@ -338,10 +346,43 @@ impl eframe::App for SettingsApp {
 
                         if self.config.show_icon {
                             ui.separator();
-                            cosmic_row(ui, "Custom Icon Path", Some("Leave blank for built-in 3D stamp icon"), |ui| {
-                                let mut path_str = self.config.image_path.clone().unwrap_or_default();
-                                if ui.add_sized([240.0, 26.0], egui::TextEdit::singleline(&mut path_str).hint_text("Default built-in icon")).changed() {
-                                    self.config.image_path = if path_str.trim().is_empty() { None } else { Some(path_str.trim().to_string()) };
+                            cosmic_row(ui, "Custom Icon / Logo", Some("Select image from disk or use built-in icon"), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("Browse...").clicked() {
+                                        if let Some(path) = rfd::FileDialog::new()
+                                            .add_filter("Images", &["png", "jpg", "jpeg", "svg"])
+                                            .pick_file()
+                                        {
+                                            self.config.image_path = Some(path.to_string_lossy().to_string());
+                                            changed = true;
+                                        }
+                                    }
+                                    if self.config.image_path.is_some() {
+                                        if ui.button("Reset").clicked() {
+                                            self.config.image_path = None;
+                                            changed = true;
+                                        }
+                                    }
+                                    let mut path_str = self.config.image_path.clone().unwrap_or_default();
+                                    if ui.add_sized([160.0, 26.0], egui::TextEdit::singleline(&mut path_str).hint_text("Default 3D icon")).changed() {
+                                        self.config.image_path = if path_str.trim().is_empty() { None } else { Some(path_str.trim().to_string()) };
+                                        changed = true;
+                                    }
+                                });
+                            });
+
+                            ui.separator();
+                            cosmic_row(ui, "Icon Size", Some("Scale of custom or built-in icon"), |ui| {
+                                let mut scale_pct = self.config.image_scale * 100.0;
+                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut scale_pct, 20.0..=300.0).suffix("%")).changed() {
+                                    self.config.image_scale = scale_pct / 100.0;
+                                    changed = true;
+                                }
+                            });
+
+                            ui.separator();
+                            cosmic_row(ui, "Monochrome Logo", Some("Tint icon to match watermark text color"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.monochrome_icon).changed() {
                                     changed = true;
                                 }
                             });
@@ -350,7 +391,7 @@ impl eframe::App for SettingsApp {
                         ui.separator();
 
                         // Lines Alongside Text (with clean gap)
-                        cosmic_row(ui, "Lines Alongside Text", Some("Decorative security lines framed with clean spacing"), |ui| {
+                        cosmic_row(ui, "Lines Alongside Text", Some("Decorative lines framed with space around text"), |ui| {
                             if cosmic_switch(ui, &mut self.config.show_lines_next_to_text).changed() {
                                 changed = true;
                             }
