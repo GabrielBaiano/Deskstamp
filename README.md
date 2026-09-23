@@ -23,6 +23,8 @@
 
 **Deskstamp** is a lightweight, real-time desktop watermark utility designed specifically for **Pop!_OS 24.04 COSMIC** and modern Wayland desktop compositors.
 
+https://github.com/user-attachments/assets/35e61840-b376-4e02-9028-4cd39a365f09
+
 Inspired by macOS utilities like Deskmark, Deskstamp allows streamers, educators, enterprise developers, and confidential content creators to stamp their screens in real-time. Whether you are streaming on Twitch/YouTube, recording meetings via OBS/PipeWire, or working on confidential NDA builds, Deskstamp protects your screens from unauthorized leaks without requiring post-production video editing.
 
 ---
