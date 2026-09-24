@@ -2,6 +2,7 @@
 name = "deskstamp"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop"] }
