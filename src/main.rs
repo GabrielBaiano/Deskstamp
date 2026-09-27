@@ -63,7 +63,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pixmap.fill(Color::from_rgba8(26, 29, 36, 255));
 
             let mut temp_buf = vec![0u8; (width * height * 4) as usize];
-            renderer.render_to_buffer(&mut temp_buf, width, height, width * 4, &cfg);
+            let ws_arg = args.get(3).map(|s| s.as_str());
+            renderer.render_to_buffer(&mut temp_buf, width, height, width * 4, &cfg, ws_arg);
 
             let temp_pixmap = PixmapMut::from_bytes(&mut temp_buf, width, height).unwrap();
             pixmap.draw_pixmap(0, 0, temp_pixmap.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
@@ -180,17 +181,27 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Dynamic timer if clock tokens are present
+    // Dynamic timer for clock tokens and fallback workspace polling
     let qh_timer = qh.clone();
     let timer = Timer::from_duration(Duration::from_secs(1));
 
     loop_handle.insert_source(timer, move |_, _, app: &mut CosmarkApp| {
+        // Fallback workspace detection if ext_workspace_manager is not supported by compositor
+        if app.workspace_manager.is_none() {
+            if let Some(ws) = deskstamp::overlay::detect_fallback_workspace() {
+                if Some(&ws) != app.active_workspace.as_ref() {
+                    app.active_workspace = Some(ws);
+                    app.draw(&qh_timer);
+                }
+            }
+        }
+
         let has_dynamic_time = app.config.text.contains("{time");
         if app.config.active && has_dynamic_time {
             app.draw(&qh_timer);
             TimeoutAction::ToDuration(Duration::from_secs(app.config.update_interval_secs.max(1)))
         } else {
-            TimeoutAction::ToDuration(Duration::from_secs(2))
+            TimeoutAction::ToDuration(Duration::from_secs(1))
         }
     })?;
 

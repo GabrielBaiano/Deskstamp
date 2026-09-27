@@ -104,7 +104,28 @@ pub struct WatermarkConfig {
 
     #[serde(default = "default_update_interval")]
     pub update_interval_secs: u64,
+
+    #[serde(default = "default_layout")]
+    pub layout: String, // "grid" or "corner"
+
+    #[serde(default = "default_corner_position")]
+    pub corner_position: String, // "bottom_right", "bottom_left", "top_right", "top_left"
+
+    #[serde(default = "default_corner_margin_x")]
+    pub corner_margin_x: f32,
+
+    #[serde(default = "default_corner_margin_y")]
+    pub corner_margin_y: f32,
+
+    #[serde(default = "default_workspace_stamps")]
+    pub workspace_stamps: std::collections::HashMap<String, String>,
 }
+
+fn default_layout() -> String { "grid".to_string() }
+fn default_corner_position() -> String { "bottom_right".to_string() }
+fn default_corner_margin_x() -> f32 { 40.0 }
+fn default_corner_margin_y() -> f32 { 40.0 }
+fn default_workspace_stamps() -> std::collections::HashMap<String, String> { std::collections::HashMap::new() }
 
 fn default_show_text() -> bool { true }
 fn default_show_icon() -> bool { true }
@@ -181,12 +202,31 @@ impl Default for WatermarkConfig {
             line_gap: default_line_gap(),
             monochrome_icon: default_monochrome_icon(),
             update_interval_secs: default_update_interval(),
+            layout: default_layout(),
+            corner_position: default_corner_position(),
+            corner_margin_x: default_corner_margin_x(),
+            corner_margin_y: default_corner_margin_y(),
+            workspace_stamps: default_workspace_stamps(),
         }
     }
 }
 
 
 impl WatermarkConfig {
+    pub fn is_corner_mode(&self) -> bool {
+        self.layout == "corner"
+    }
+
+    pub fn get_text_for_workspace(&self, ws: Option<&str>) -> String {
+        if let Some(w) = ws {
+            if let Some(custom) = self.workspace_stamps.get(w) {
+                if !custom.trim().is_empty() {
+                    return custom.clone();
+                }
+            }
+        }
+        self.text.clone()
+    }
     pub fn config_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".config/deskstamp/config.json")
@@ -214,5 +254,47 @@ impl WatermarkConfig {
         std::fs::write(&tmp_path, json)?;
         std::fs::rename(tmp_path, path)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_config_and_backward_compatibility() {
+        let def = WatermarkConfig::default();
+        assert_eq!(def.layout, "grid");
+        assert_eq!(def.corner_position, "bottom_right");
+        assert!(!def.is_corner_mode());
+
+        // Test deserializing legacy config without new fields
+        let legacy_json = r#"{
+            "text": "LEGACY STAMP",
+            "active": true
+        }"#;
+        let parsed: WatermarkConfig = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(parsed.text, "LEGACY STAMP");
+        assert_eq!(parsed.layout, "grid");
+        assert_eq!(parsed.corner_position, "bottom_right");
+        assert_eq!(parsed.corner_margin_x, 40.0);
+        assert_eq!(parsed.corner_margin_y, 40.0);
+        assert!(parsed.workspace_stamps.is_empty());
+    }
+
+    #[test]
+    fn test_workspace_stamps_and_corner_mode() {
+        let mut cfg = WatermarkConfig::default();
+        cfg.layout = "corner".to_string();
+        assert!(cfg.is_corner_mode());
+
+        cfg.text = "GLOBAL STAMP".to_string();
+        cfg.workspace_stamps.insert("1".to_string(), "PROD SERVER - DO NOT TOUCH".to_string());
+        cfg.workspace_stamps.insert("Dev".to_string(), "SANDBOX ENVIRONMENT".to_string());
+
+        assert_eq!(cfg.get_text_for_workspace(Some("1")), "PROD SERVER - DO NOT TOUCH");
+        assert_eq!(cfg.get_text_for_workspace(Some("Dev")), "SANDBOX ENVIRONMENT");
+        assert_eq!(cfg.get_text_for_workspace(Some("2")), "GLOBAL STAMP");
+        assert_eq!(cfg.get_text_for_workspace(None), "GLOBAL STAMP");
     }
 }

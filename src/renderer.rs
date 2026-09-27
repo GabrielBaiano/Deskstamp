@@ -1,5 +1,4 @@
 use crate::config::WatermarkConfig;
-use crate::tokens::resolve_tokens;
 use fontdue::{Font, FontSettings};
 use tiny_skia::*;
 
@@ -132,93 +131,110 @@ impl WatermarkRenderer {
         pix
     }
 
-    /// Renders text glyphs onto an RGBA Pixmap tile
+    /// Renders text glyphs onto an RGBA Pixmap tile, supporting multiline text with newlines
     fn render_text_tile(&self, text: &str, size: f32, color_rgba: [u8; 4], stroke_color: [u8; 4], stroke: bool) -> (Pixmap, f32, f32) {
-        let mut glyphs = Vec::new();
-        let mut total_width = 0.0f32;
+        let lines: Vec<&str> = text.lines().collect();
+        if lines.is_empty() {
+            return (Pixmap::new(1, 1).unwrap(), 0.0, 0.0);
+        }
+
+        let mut lines_data = Vec::new();
+        let mut max_line_width = 0.0f32;
         let mut max_ascent = 0.0f32;
         let mut max_descent = 0.0f32;
 
-        for ch in text.chars() {
-            let (metrics, bitmap) = self.font.rasterize(ch, size);
-            total_width += metrics.advance_width;
-            if metrics.bounds.ymin.abs() > max_descent {
-                max_descent = metrics.bounds.ymin.abs();
+        for line in &lines {
+            let mut glyphs = Vec::new();
+            let mut total_width = 0.0f32;
+            for ch in line.chars() {
+                let (metrics, bitmap) = self.font.rasterize(ch, size);
+                total_width += metrics.advance_width;
+                if metrics.bounds.ymin.abs() > max_descent {
+                    max_descent = metrics.bounds.ymin.abs();
+                }
+                if metrics.bounds.height > max_ascent {
+                    max_ascent = metrics.bounds.height;
+                }
+                glyphs.push((metrics, bitmap));
             }
-            if metrics.bounds.height as f32 > max_ascent {
-                max_ascent = metrics.bounds.height as f32;
+            if total_width > max_line_width {
+                max_line_width = total_width;
             }
-            glyphs.push((metrics, bitmap));
+            lines_data.push((total_width, glyphs));
         }
 
         let pad = 12.0f32;
-        let tile_w = (total_width + pad * 2.0).ceil() as u32;
-        let tile_h = (max_ascent + max_descent + pad * 2.0).ceil().max(size + pad * 2.0) as u32;
+        let line_height = (max_ascent + max_descent).max(size * 1.25);
+        let tile_w = (max_line_width + pad * 2.0).ceil() as u32;
+        let tile_h = (line_height * lines_data.len() as f32 + pad * 2.0).ceil() as u32;
 
         let mut pixmap = Pixmap::new(tile_w.max(1), tile_h.max(1)).unwrap_or_else(|| Pixmap::new(1, 1).unwrap());
-        let baseline = pad + max_ascent;
 
-        let mut current_x = pad;
-        for (metrics, bitmap) in glyphs {
-            let gx = (current_x + metrics.bounds.xmin) as i32;
-            let gy = (baseline - metrics.bounds.height as f32 - metrics.bounds.ymin) as i32;
+        for (line_idx, (_line_w, glyphs)) in lines_data.into_iter().enumerate() {
+            let baseline = pad + max_ascent + line_idx as f32 * line_height;
+            let mut current_x = pad;
 
-            if stroke {
-                // Draw outline stroke
-                for dy in -1..=1 {
-                    for dx in -1..=1 {
-                        if dx == 0 && dy == 0 { continue; }
-                        for row in 0..metrics.height {
-                            for col in 0..metrics.width {
-                                let alpha = bitmap[row * metrics.width + col];
-                                if alpha > 30 {
-                                    let px = gx + dx + col as i32;
-                                    let py = gy + dy + row as i32;
-                                    if px >= 0 && px < pixmap.width() as i32 && py >= 0 && py < pixmap.height() as i32 {
-                                        let a = ((alpha as u32 * stroke_color[3] as u32) / 255) as u8;
-                                        let c = Color::from_rgba8(stroke_color[0], stroke_color[1], stroke_color[2], a);
-                                        pixmap.fill_rect(
-                                            Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
-                                            &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
-                                            Transform::identity(),
-                                            None,
-                                        );
+            for (metrics, bitmap) in glyphs {
+                let gx = (current_x + metrics.bounds.xmin) as i32;
+                let gy = (baseline - metrics.bounds.height - metrics.bounds.ymin) as i32;
+
+                if stroke {
+                    // Draw outline stroke
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            if dx == 0 && dy == 0 { continue; }
+                            for row in 0..metrics.height {
+                                for col in 0..metrics.width {
+                                    let alpha = bitmap[row * metrics.width + col];
+                                    if alpha > 30 {
+                                        let px = gx + dx + col as i32;
+                                        let py = gy + dy + row as i32;
+                                        if px >= 0 && px < pixmap.width() as i32 && py >= 0 && py < pixmap.height() as i32 {
+                                            let a = ((alpha as u32 * stroke_color[3] as u32) / 255) as u8;
+                                            let c = Color::from_rgba8(stroke_color[0], stroke_color[1], stroke_color[2], a);
+                                            pixmap.fill_rect(
+                                                Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
+                                                &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
+                                                Transform::identity(),
+                                                None,
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // Draw glyph core
-            for row in 0..metrics.height {
-                for col in 0..metrics.width {
-                    let alpha = bitmap[row * metrics.width + col];
-                    if alpha > 0 {
-                        let px = gx + col as i32;
-                        let py = gy + row as i32;
-                        if px >= 0 && px < pixmap.width() as i32 && py >= 0 && py < pixmap.height() as i32 {
-                            let a = ((alpha as u32 * color_rgba[3] as u32) / 255) as u8;
-                            let c = Color::from_rgba8(color_rgba[0], color_rgba[1], color_rgba[2], a);
-                            pixmap.fill_rect(
-                                Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
-                                &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
-                                Transform::identity(),
-                                None,
-                            );
+                // Draw glyph core
+                for row in 0..metrics.height {
+                    for col in 0..metrics.width {
+                        let alpha = bitmap[row * metrics.width + col];
+                        if alpha > 0 {
+                            let px = gx + col as i32;
+                            let py = gy + row as i32;
+                            if px >= 0 && px < pixmap.width() as i32 && py >= 0 && py < pixmap.height() as i32 {
+                                let a = ((alpha as u32 * color_rgba[3] as u32) / 255) as u8;
+                                let c = Color::from_rgba8(color_rgba[0], color_rgba[1], color_rgba[2], a);
+                                pixmap.fill_rect(
+                                    Rect::from_xywh(px as f32, py as f32, 1.0, 1.0).unwrap(),
+                                    &Paint { shader: Shader::SolidColor(c), anti_alias: false, ..Default::default() },
+                                    Transform::identity(),
+                                    None,
+                                );
+                            }
                         }
                     }
                 }
-            }
 
-            current_x += metrics.advance_width;
+                current_x += metrics.advance_width;
+            }
         }
 
         (pixmap, tile_w as f32, tile_h as f32)
     }
 
-    /// Renders repeated watermark grid and vertical lines over the output buffer
+    /// Renders watermark (grid or corner) and optional vertical/diagonal lines over the output buffer
     pub fn render_to_buffer(
         &self,
         buffer: &mut [u8],
@@ -226,6 +242,7 @@ impl WatermarkRenderer {
         height: u32,
         _stride: u32,
         cfg: &WatermarkConfig,
+        workspace: Option<&str>,
     ) {
         if !cfg.active || cfg.opacity <= 0.001 {
             buffer.fill(0);
@@ -238,9 +255,8 @@ impl WatermarkRenderer {
         };
         pixmap.fill(Color::TRANSPARENT);
 
-        self.draw_watermark_elements(&mut pixmap, width, height, cfg);
+        self.draw_watermark_elements(&mut pixmap, width, height, cfg, workspace);
     }
-
 
     fn draw_watermark_elements(
         &self,
@@ -248,12 +264,14 @@ impl WatermarkRenderer {
         width: u32,
         height: u32,
         cfg: &WatermarkConfig,
+        workspace: Option<&str>,
     ) {
+        let is_corner = cfg.is_corner_mode();
         let step_x = cfg.spacing_x.max(100.0);
         let step_y = cfg.spacing_y.max(50.0);
 
-        // 1. Draw Vertical Lines directly into pixel buffer (blazing fast and crash-proof)
-        if cfg.show_vertical_lines && cfg.line_width >= 0.5 {
+        // 1. Draw Vertical Lines directly into pixel buffer (only in grid mode)
+        if !is_corner && cfg.show_vertical_lines && cfg.line_width >= 0.5 {
             let l_alpha = ((cfg.line_color_rgba[3] as f32 / 255.0) * cfg.opacity.clamp(0.0, 1.0) * 255.0) as u8;
             let shadow_alpha = (l_alpha / 2).max(1);
             let shadow_color = PremultipliedColorU8::from_rgba(0, 0, 0, shadow_alpha).unwrap_or(PremultipliedColorU8::TRANSPARENT);
@@ -307,8 +325,8 @@ impl WatermarkRenderer {
             }
         }
 
-        // 2. Draw Diagonal Lines
-        if cfg.show_diagonal_lines && cfg.diagonal_line_width >= 0.5 {
+        // 2. Draw Diagonal Lines (only in grid mode)
+        if !is_corner && cfg.show_diagonal_lines && cfg.diagonal_line_width >= 0.5 {
             let l_alpha = ((cfg.diagonal_line_color_rgba[3] as f32 / 255.0) * cfg.opacity.clamp(0.0, 1.0) * 255.0) as u8;
             if l_alpha > 0 {
                 let color = Color::from_rgba8(
@@ -363,7 +381,8 @@ impl WatermarkRenderer {
         }
 
         // 3. Prepare Tile (Text + Icon side-by-side + Lines alongside with spacing)
-        let resolved_text = resolve_tokens(&cfg.text);
+        let raw_text = cfg.get_text_for_workspace(workspace);
+        let resolved_text = crate::tokens::resolve_tokens_with_workspace(&raw_text, workspace);
         let has_stroke = cfg.stroke_width > 0.1;
 
         let should_show_text = cfg.show_text && !resolved_text.is_empty();
@@ -477,9 +496,48 @@ impl WatermarkRenderer {
             (comb, total_w as f32, total_h as f32)
         };
 
-        let mut paint = PixmapPaint::default();
-        paint.opacity = cfg.opacity.clamp(0.0, 1.0);
-        paint.quality = FilterQuality::Bilinear;
+        let paint = PixmapPaint {
+            opacity: cfg.opacity.clamp(0.0, 1.0),
+            quality: FilterQuality::Bilinear,
+            ..Default::default()
+        };
+
+        if is_corner {
+            let margin_x = cfg.corner_margin_x.max(0.0);
+            let margin_y = cfg.corner_margin_y.max(0.0);
+            let (pos_x, pos_y) = match cfg.corner_position.as_str() {
+                "bottom_left" => (
+                    margin_x,
+                    (height as f32 - tile_h - margin_y).max(0.0),
+                ),
+                "top_right" => (
+                    (width as f32 - tile_w - margin_x).max(0.0),
+                    margin_y,
+                ),
+                "top_left" => (
+                    margin_x,
+                    margin_y,
+                ),
+                _ => {
+                    // "bottom_right" default (Windows activation style)
+                    (
+                        (width as f32 - tile_w - margin_x).max(0.0),
+                        (height as f32 - tile_h - margin_y).max(0.0),
+                    )
+                }
+            };
+
+            let transform = if cfg.angle_deg.abs() > 0.01 {
+                Transform::from_translate(pos_x + tile_w * 0.5, pos_y + tile_h * 0.5)
+                    .pre_rotate(cfg.angle_deg)
+                    .pre_translate(-tile_w * 0.5, -tile_h * 0.5)
+            } else {
+                Transform::from_translate(pos_x, pos_y)
+            };
+
+            pixmap.draw_pixmap(0, 0, tile_pixmap.as_ref(), &paint, transform, None);
+            return;
+        }
 
         let cx = width as f32 * 0.5;
         let cy = height as f32 * 0.5;
@@ -508,6 +566,32 @@ impl WatermarkRenderer {
             }
             v += step_y;
             row_idx += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_renderer_corner_mode_and_multiline() {
+        let renderer = WatermarkRenderer::new(None);
+        if let Ok(r) = renderer {
+            let mut cfg = WatermarkConfig::default();
+            cfg.layout = "corner".to_string();
+            cfg.corner_position = "bottom_right".to_string();
+            cfg.text = "Activate Pop!_OS\nGo to Settings to activate.".to_string();
+            cfg.active = true;
+            cfg.opacity = 0.5;
+
+            let width = 800;
+            let height = 600;
+            let mut buf = vec![0u8; (width * height * 4) as usize];
+            r.render_to_buffer(&mut buf, width, height, width * 4, &cfg, Some("Workspace 1"));
+
+            // Ensure pixels were drawn
+            assert!(buf.iter().any(|&b| b > 0));
         }
     }
 }

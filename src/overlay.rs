@@ -18,8 +18,23 @@ use smithay_client_toolkit::{
 use wayland_client::{
     globals::GlobalList,
     protocol::{wl_output, wl_shm, wl_surface},
-    Connection, QueueHandle,
+    Connection, QueueHandle, Dispatch,
 };
+use wayland_protocols::ext::workspace::v1::client::{
+    ext_workspace_manager_v1::{self, ExtWorkspaceManagerV1},
+    ext_workspace_group_handle_v1::{self, ExtWorkspaceGroupHandleV1},
+    ext_workspace_handle_v1::{self, ExtWorkspaceHandleV1},
+};
+
+
+use wayland_client::Proxy;
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceData {
+    pub name: String,
+    pub is_active: bool,
+}
 
 pub struct OverlayOutput {
     pub output: wl_output::WlOutput,
@@ -42,6 +57,9 @@ pub struct CosmarkApp {
     pub exit: bool,
     pub single_frame_test: bool,
     pub frame_counter: u32,
+    pub workspace_manager: Option<ExtWorkspaceManagerV1>,
+    pub workspaces: HashMap<wayland_client::backend::ObjectId, WorkspaceData>,
+    pub active_workspace: Option<String>,
 }
 
 impl CosmarkApp {
@@ -55,6 +73,7 @@ impl CosmarkApp {
         let renderer = WatermarkRenderer::new(None)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
         let config = WatermarkConfig::load();
+        let workspace_manager: Option<ExtWorkspaceManagerV1> = globals.bind(qh, 1..=1, ()).ok();
 
         let mut app = Self {
             registry_state,
@@ -69,6 +88,9 @@ impl CosmarkApp {
             exit: false,
             single_frame_test: false,
             frame_counter: 0,
+            workspace_manager,
+            workspaces: HashMap::new(),
+            active_workspace: None,
         };
 
         // Create surfaces for already discovered outputs
@@ -134,7 +156,7 @@ impl CosmarkApp {
                 }
             };
 
-            self.renderer.render_to_buffer(canvas, width, height, stride, &self.config);
+            self.renderer.render_to_buffer(canvas, width, height, stride, &self.config, self.active_workspace.as_deref());
 
             // Convert tiny-skia's RGBA pixel buffer to Wayland wl_shm ARGB8888 (little-endian BGRA in memory)
             for chunk in canvas.chunks_exact_mut(4) {
@@ -149,6 +171,110 @@ impl CosmarkApp {
 
         self.frame_counter += 1;
     }
+}
+
+impl Dispatch<ExtWorkspaceManagerV1, ()> for CosmarkApp {
+    fn event(
+        state: &mut Self,
+        _proxy: &ExtWorkspaceManagerV1,
+        event: ext_workspace_manager_v1::Event,
+        _data: &(),
+        _conn: &Connection,
+        qhandle: &QueueHandle<Self>,
+    ) {
+        match event {
+            ext_workspace_manager_v1::Event::WorkspaceGroup { .. } => {}
+            ext_workspace_manager_v1::Event::Workspace { .. } => {}
+            ext_workspace_manager_v1::Event::Done => {
+                let new_active = state
+                    .workspaces
+                    .values()
+                    .find(|w| w.is_active)
+                    .map(|w| w.name.clone());
+
+                if new_active.is_some() && new_active != state.active_workspace {
+                    state.active_workspace = new_active;
+                    state.draw(qhandle);
+                }
+            }
+            ext_workspace_manager_v1::Event::Finished => {}
+            _ => {}
+        }
+    }
+
+    wayland_client::event_created_child!(CosmarkApp, ExtWorkspaceManagerV1, [
+        0 => (ExtWorkspaceGroupHandleV1, ()),
+        1 => (ExtWorkspaceHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<ExtWorkspaceGroupHandleV1, ()> for CosmarkApp {
+    fn event(
+        _state: &mut Self,
+        _proxy: &ExtWorkspaceGroupHandleV1,
+        _event: ext_workspace_group_handle_v1::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ExtWorkspaceHandleV1, ()> for CosmarkApp {
+    fn event(
+        state: &mut Self,
+        proxy: &ExtWorkspaceHandleV1,
+        event: ext_workspace_handle_v1::Event,
+        _data: &(),
+        _conn: &Connection,
+        _qhandle: &QueueHandle<Self>,
+    ) {
+        let id = proxy.id();
+        let ws = state.workspaces.entry(id).or_default();
+        match event {
+            ext_workspace_handle_v1::Event::Name { name } => {
+                ws.name = name;
+            }
+            ext_workspace_handle_v1::Event::State { state: wayland_client::WEnum::Value(flags) } => {
+                ws.is_active = flags.contains(ext_workspace_handle_v1::State::Active);
+            }
+            ext_workspace_handle_v1::Event::Removed => {
+                state.workspaces.remove(&proxy.id());
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn detect_fallback_workspace() -> Option<String> {
+    if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
+        if let Ok(out) = std::process::Command::new("hyprctl").args(["activeworkspace", "-j"]).output() {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                if let Some(name) = val.get("name").and_then(|v| v.as_str()) {
+                    return Some(name.to_string());
+                }
+                if let Some(id) = val.get("id").and_then(|v| v.as_i64()) {
+                    return Some(id.to_string());
+                }
+            }
+        }
+    }
+    if std::env::var("SWAYSOCK").is_ok() {
+        if let Ok(out) = std::process::Command::new("swaymsg").args(["-t", "get_workspaces"]).output() {
+            if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                if let Some(arr) = val.as_array() {
+                    for item in arr {
+                        if item.get("focused").and_then(|v| v.as_bool()).unwrap_or(false) {
+                            if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
+                                return Some(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 impl ProvidesRegistryState for CosmarkApp {
