@@ -32,7 +32,42 @@ impl WatermarkRenderer {
         if let Some(p) = custom_font {
             candidates.push(p.to_string());
         }
+
+        // Try querying system fontconfig via fc-match
+        if !font_family.trim().is_empty() {
+            if let Ok(output) = std::process::Command::new("fc-match")
+                .arg(font_family)
+                .arg("-f")
+                .arg("%{file}")
+                .output()
+            {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() {
+                        candidates.push(path);
+                    }
+                }
+            }
+        }
+
         match font_family.to_lowercase().as_str() {
+            "fira sans" => {
+                candidates.push("/usr/share/fonts/opentype/fira/FiraSans-Regular.otf".to_string());
+                candidates.push("/usr/share/fonts/opentype/fira/FiraSans-Medium.otf".to_string());
+            }
+            "fira code" | "firacode" | "firacode nerd font" => {
+                let home = std::env::var("HOME").unwrap_or_default();
+                candidates.push(format!("{}/.local/share/fonts/firacode-nerd-font/FiraCodeNerdFont-Regular.ttf", home));
+                candidates.push("/usr/share/fonts/truetype/firacode/FiraCode-Regular.ttf".to_string());
+            }
+            "ubuntu" => {
+                candidates.push("/usr/share/fonts/truetype/ubuntu/Ubuntu[wdth,wght].ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/ubuntu/Ubuntu-Regular.ttf".to_string());
+            }
+            "noto sans" => {
+                candidates.push("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf".to_string());
+                candidates.push("/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf".to_string());
+            }
             "roboto" => {
                 candidates.push("/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf".to_string());
                 candidates.push("/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Regular.ttf".to_string());
@@ -386,12 +421,36 @@ impl WatermarkRenderer {
         let has_stroke = cfg.stroke_width > 0.1;
 
         let should_show_text = cfg.show_text && !resolved_text.is_empty();
-        let should_show_icon = cfg.show_icon || cfg.mode == "image" || cfg.mode == "both";
+        // Respect the toggle switch `show_icon`: if false, NEVER render icon!
+        let should_show_icon = cfg.show_icon && (cfg.mode != "text");
 
         let (txt_tile, txt_w, txt_h) = if should_show_text {
             self.render_text_tile(
                 &resolved_text,
                 cfg.font_size,
+                cfg.color_rgba,
+                cfg.stroke_color_rgba,
+                has_stroke,
+            )
+        } else {
+            (Pixmap::new(1, 1).unwrap(), 0.0, 0.0)
+        };
+
+        // Render secondary text for corner layout if configured
+        let raw_sec_text = if is_corner && !cfg.corner_secondary_text.trim().is_empty() {
+            crate::tokens::resolve_tokens_with_workspace(&cfg.corner_secondary_text, workspace)
+        } else {
+            String::new()
+        };
+        let (sec_tile, sec_w, sec_h) = if !raw_sec_text.is_empty() {
+            let sec_size = if cfg.corner_secondary_font_size > 0.0 {
+                cfg.corner_secondary_font_size
+            } else {
+                (cfg.font_size * 0.75).max(10.0)
+            };
+            self.render_text_tile(
+                &raw_sec_text,
+                sec_size,
                 cfg.color_rgba,
                 cfg.stroke_color_rgba,
                 has_stroke,
@@ -420,14 +479,47 @@ impl WatermarkRenderer {
         };
 
         let icon_gap = if should_show_icon && should_show_text && txt_w > 0.0 { 12.0 } else { 0.0 };
-        let content_w = icon_w + icon_gap + txt_w;
-        let content_h = icon_h.max(txt_h).max(12.0);
+        let top_row_w = icon_w + icon_gap + txt_w;
+        let top_row_h = icon_h.max(txt_h).max(if should_show_icon || should_show_text { 12.0 } else { 0.0 });
 
-        let (tile_pixmap, tile_w, tile_h) = if cfg.show_lines_next_to_text && (content_w > 0.0) {
+        let (tile_pixmap, tile_w, tile_h) = if is_corner {
+            // Corner Layout: top row (icon + main text) and optional bottom secondary text (Windows activation style)
+            let has_secondary = sec_w > 0.0 && sec_h > 0.0;
+            let sec_gap = if has_secondary { 4.0 } else { 0.0 };
+            let align_right = cfg.corner_position == "bottom_right" || cfg.corner_position == "top_right";
+
+            let block_w = top_row_w.max(sec_w).max(1.0);
+            let block_h = (top_row_h + sec_gap + sec_h).max(1.0);
+
+            let mut comb = Pixmap::new(block_w.ceil() as u32, block_h.ceil() as u32).unwrap();
+            comb.fill(Color::TRANSPARENT);
+
+            // Draw top row (icon + main text)
+            let top_start_x = if align_right { block_w - top_row_w } else { 0.0 };
+            let mut curr_x = top_start_x;
+            if let Some(img) = &icon_tile {
+                let img_y = (top_row_h - icon_h) * 0.5;
+                comb.draw_pixmap(curr_x.round() as i32, img_y.round() as i32, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+                curr_x += icon_w + icon_gap;
+            }
+            if should_show_text && txt_w > 0.0 {
+                let txt_y = (top_row_h - txt_h) * 0.5;
+                comb.draw_pixmap(curr_x.round() as i32, txt_y.round() as i32, txt_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            }
+
+            // Draw secondary bottom line
+            if has_secondary {
+                let sec_x = if align_right { block_w - sec_w } else { 0.0 };
+                let sec_y = top_row_h + sec_gap;
+                comb.draw_pixmap(sec_x.round() as i32, sec_y.round() as i32, sec_tile.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+            }
+
+            (comb, block_w, block_h)
+        } else if cfg.show_lines_next_to_text && (top_row_w > 0.0) {
             let line_len = cfg.line_length.max(20.0);
             let line_gap = cfg.line_gap.max(10.0);
-            let total_w = ((line_len + line_gap) * 2.0 + content_w).ceil() as u32;
-            let total_h = (content_h + 8.0).ceil() as u32;
+            let total_w = ((line_len + line_gap) * 2.0 + top_row_w).ceil() as u32;
+            let total_h = (top_row_h + 8.0).ceil() as u32;
 
             let mut comb = Pixmap::new(total_w.max(1), total_h.max(1)).unwrap();
             comb.fill(Color::TRANSPARENT);
@@ -477,8 +569,8 @@ impl WatermarkRenderer {
 
             (comb, total_w as f32, total_h as f32)
         } else {
-            let total_w = content_w.max(1.0).ceil() as u32;
-            let total_h = content_h.max(1.0).ceil() as u32;
+            let total_w = top_row_w.max(1.0).ceil() as u32;
+            let total_h = top_row_h.max(1.0).ceil() as u32;
             let mut comb = Pixmap::new(total_w, total_h).unwrap();
             comb.fill(Color::TRANSPARENT);
 
@@ -591,6 +683,28 @@ mod tests {
             r.render_to_buffer(&mut buf, width, height, width * 4, &cfg, Some("Workspace 1"));
 
             // Ensure pixels were drawn
+            assert!(buf.iter().any(|&b| b > 0));
+        }
+    }
+
+    #[test]
+    fn test_renderer_corner_secondary_text_and_no_icon() {
+        let renderer = WatermarkRenderer::new(None);
+        if let Ok(r) = renderer {
+            let mut cfg = WatermarkConfig::default();
+            cfg.layout = "corner".to_string();
+            cfg.corner_position = "bottom_right".to_string();
+            cfg.text = "Activate Pop!_OS".to_string();
+            cfg.corner_secondary_text = "Go to Settings to activate.".to_string();
+            cfg.show_icon = false; // user disabled icon
+            cfg.active = true;
+            cfg.opacity = 0.5;
+
+            let width = 800;
+            let height = 600;
+            let mut buf = vec![0u8; (width * height * 4) as usize];
+            r.render_to_buffer(&mut buf, width, height, width * 4, &cfg, None);
+
             assert!(buf.iter().any(|&b| b > 0));
         }
     }

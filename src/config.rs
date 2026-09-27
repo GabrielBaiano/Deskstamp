@@ -117,6 +117,12 @@ pub struct WatermarkConfig {
     #[serde(default = "default_corner_margin_y")]
     pub corner_margin_y: f32,
 
+    #[serde(default = "default_corner_secondary_text")]
+    pub corner_secondary_text: String,
+
+    #[serde(default = "default_corner_secondary_font_size")]
+    pub corner_secondary_font_size: f32,
+
     #[serde(default = "default_workspace_stamps")]
     pub workspace_stamps: std::collections::HashMap<String, String>,
 }
@@ -125,6 +131,8 @@ fn default_layout() -> String { "grid".to_string() }
 fn default_corner_position() -> String { "bottom_right".to_string() }
 fn default_corner_margin_x() -> f32 { 40.0 }
 fn default_corner_margin_y() -> f32 { 40.0 }
+fn default_corner_secondary_text() -> String { String::new() }
+fn default_corner_secondary_font_size() -> f32 { 13.0 }
 fn default_workspace_stamps() -> std::collections::HashMap<String, String> { std::collections::HashMap::new() }
 
 fn default_show_text() -> bool { true }
@@ -206,6 +214,8 @@ impl Default for WatermarkConfig {
             corner_position: default_corner_position(),
             corner_margin_x: default_corner_margin_x(),
             corner_margin_y: default_corner_margin_y(),
+            corner_secondary_text: default_corner_secondary_text(),
+            corner_secondary_font_size: default_corner_secondary_font_size(),
             workspace_stamps: default_workspace_stamps(),
         }
     }
@@ -296,5 +306,20 @@ mod tests {
         assert_eq!(cfg.get_text_for_workspace(Some("Dev")), "SANDBOX ENVIRONMENT");
         assert_eq!(cfg.get_text_for_workspace(Some("2")), "GLOBAL STAMP");
         assert_eq!(cfg.get_text_for_workspace(None), "GLOBAL STAMP");
+    }
+
+    #[test]
+    fn test_corner_secondary_text_and_font_family() {
+        let mut cfg = WatermarkConfig::default();
+        cfg.layout = "corner".to_string();
+        cfg.corner_secondary_text = "Go to Settings to activate.".to_string();
+        cfg.font_family = "Fira Sans".to_string();
+        assert_eq!(cfg.corner_secondary_text, "Go to Settings to activate.");
+        assert_eq!(cfg.font_family, "Fira Sans");
+
+        let serialized = serde_json::to_string(&cfg).unwrap();
+        let parsed: WatermarkConfig = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(parsed.corner_secondary_text, "Go to Settings to activate.");
+        assert_eq!(parsed.font_family, "Fira Sans");
     }
 }

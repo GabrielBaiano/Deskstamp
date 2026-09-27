@@ -119,7 +119,7 @@ impl SettingsApp {
 impl eframe::App for SettingsApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.last_check_frame += 1;
-        if self.last_check_frame % 60 == 0 {
+        if self.last_check_frame.is_multiple_of(60) {
             self.daemon_running = send_command(&IpcCommand::Status).is_ok();
         }
 
@@ -284,6 +284,22 @@ impl eframe::App for SettingsApp {
                                     }
                                 });
                             });
+
+                            ui.separator();
+                            cosmic_row(ui, "Secondary Bottom Text", Some("Optional subtitle (e.g. 'Go to Settings to activate.')"), |ui| {
+                                if ui.add_sized([260.0, 26.0], egui::TextEdit::singleline(&mut self.config.corner_secondary_text).hint_text("Secondary text...")).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            if !self.config.corner_secondary_text.trim().is_empty() {
+                                ui.separator();
+                                cosmic_row(ui, "Secondary Font Size", Some("Size of bottom subtitle line"), |ui| {
+                                    if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.corner_secondary_font_size, 8.0..=36.0).suffix(" px")).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            }
                         }
 
                         ui.separator();
@@ -314,6 +330,55 @@ impl eframe::App for SettingsApp {
                                 self.config.opacity = op_percent / 100.0;
                                 changed = true;
                             }
+                        });
+
+                        ui.separator();
+
+                        // Font Family
+                        cosmic_row(ui, "Font Family", Some("Typography style for watermark text"), |ui| {
+                            ui.horizontal(|ui| {
+                                egui::ComboBox::from_id_salt("font_family_combo")
+                                    .selected_text(&self.config.font_family)
+                                    .width(160.0)
+                                    .show_ui(ui, |ui| {
+                                        for font in [
+                                            "Liberation Sans",
+                                            "Fira Sans",
+                                            "FiraCode Nerd Font",
+                                            "Ubuntu",
+                                            "Roboto",
+                                            "Roboto Slab",
+                                            "Liberation Serif",
+                                            "Liberation Mono",
+                                            "DejaVu Sans",
+                                        ] {
+                                            if ui.selectable_label(self.config.font_family == font, font).clicked() {
+                                                self.config.font_family = font.to_string();
+                                                changed = true;
+                                            }
+                                        }
+                                    });
+
+                                if ui.button("Custom TTF...").on_hover_text("Pick custom TTF/OTF font file from disk").clicked() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Fonts", &["ttf", "otf"])
+                                        .pick_file()
+                                    {
+                                        self.config.font_path = Some(path.to_string_lossy().to_string());
+                                        if let Some(file_stem) = path.file_stem() {
+                                            self.config.font_family = file_stem.to_string_lossy().to_string();
+                                        }
+                                        changed = true;
+                                    }
+                                }
+                                if self.config.font_path.is_some()
+                                    && ui.button("Reset").on_hover_text("Reset to system font").clicked()
+                                {
+                                    self.config.font_path = None;
+                                    self.config.font_family = "Liberation Sans".to_string();
+                                    changed = true;
+                                }
+                            });
                         });
 
                         ui.separator();
@@ -370,6 +435,12 @@ impl eframe::App for SettingsApp {
                         // Show Text
                         cosmic_row(ui, "Show Text", None, |ui| {
                             if cosmic_switch(ui, &mut self.config.show_text).changed() {
+                                self.config.mode = match (self.config.show_text, self.config.show_icon) {
+                                    (true, true) => "both".to_string(),
+                                    (true, false) => "text".to_string(),
+                                    (false, true) => "image".to_string(),
+                                    (false, false) => "none".to_string(),
+                                };
                                 changed = true;
                             }
                         });
@@ -388,6 +459,12 @@ impl eframe::App for SettingsApp {
                         // Show Icon
                         cosmic_row(ui, "Show Icon / Image", None, |ui| {
                             if cosmic_switch(ui, &mut self.config.show_icon).changed() {
+                                self.config.mode = match (self.config.show_text, self.config.show_icon) {
+                                    (true, true) => "both".to_string(),
+                                    (true, false) => "text".to_string(),
+                                    (false, true) => "image".to_string(),
+                                    (false, false) => "none".to_string(),
+                                };
                                 changed = true;
                             }
                         });
@@ -405,11 +482,9 @@ impl eframe::App for SettingsApp {
                                             changed = true;
                                         }
                                     }
-                                    if self.config.image_path.is_some() {
-                                        if ui.button("Reset").clicked() {
-                                            self.config.image_path = None;
-                                            changed = true;
-                                        }
+                                    if self.config.image_path.is_some() && ui.button("Reset").clicked() {
+                                        self.config.image_path = None;
+                                        changed = true;
                                     }
                                     let mut path_str = self.config.image_path.clone().unwrap_or_default();
                                     if ui.add_sized([160.0, 26.0], egui::TextEdit::singleline(&mut path_str).hint_text("Default 3D icon")).changed() {
@@ -528,16 +603,33 @@ impl eframe::App for SettingsApp {
                         .inner_margin(egui::Margin::symmetric(16, 12));
 
                     card5.show(ui, |ui| {
-                        ui.label(egui::RichText::new("Live Pattern Preview").strong().size(12.5).color(egui::Color32::from_rgb(233, 84, 32)));
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Live Pattern Preview").strong().size(12.5).color(egui::Color32::from_rgb(233, 84, 32)));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let mode_str = if self.config.is_corner_mode() {
+                                    format!("Corner: {}", self.config.corner_position)
+                                } else {
+                                    format!("Grid: {}° rotation", self.config.angle_deg as i32)
+                                };
+                                ui.label(egui::RichText::new(mode_str).size(11.0).color(egui::Color32::from_rgb(155, 160, 175)));
+                            });
+                        });
                         ui.add_space(4.0);
 
-                        let preview_height = 80.0;
+                        let preview_height = 120.0;
                         let (response, painter) = ui.allocate_painter(egui::vec2(ui.available_width(), preview_height), egui::Sense::hover());
                         let rect = response.rect;
-                        let center = rect.center();
 
-                        // Dark wallpaper background
-                        painter.rect_filled(rect, 6.0, egui::Color32::from_rgb(18, 20, 24));
+                        // Desktop wallpaper canvas with subtle gradient border
+                        painter.rect_filled(rect, 8.0, egui::Color32::from_rgb(18, 20, 26));
+                        painter.rect_stroke(rect, 8.0, egui::Stroke::new(1.0, egui::Color32::from_rgb(40, 44, 54)), egui::StrokeKind::Inside);
+
+                        // Draw subtle desktop dock or top bar hint for realism
+                        let bar_rect = egui::Rect::from_min_size(
+                            egui::pos2(rect.left() + 10.0, rect.top() + 6.0),
+                            egui::vec2(rect.width() - 20.0, 10.0),
+                        );
+                        painter.rect_filled(bar_rect, 3.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12));
 
                         let sample_text = if self.config.show_text && !self.config.text.is_empty() {
                             crate::tokens::resolve_tokens(&self.config.text)
@@ -545,64 +637,129 @@ impl eframe::App for SettingsApp {
                             String::new()
                         };
 
-                        let alpha = ((self.config.opacity * 255.0) as u8).max(50);
-                        let col = egui::Color32::from_rgba_unmultiplied(
+                        let sample_sec_text = if self.config.is_corner_mode() && !self.config.corner_secondary_text.trim().is_empty() {
+                            crate::tokens::resolve_tokens(&self.config.corner_secondary_text)
+                        } else {
+                            String::new()
+                        };
+
+                        let alpha = ((self.config.opacity * 255.0) as u8).max(60);
+                        let main_col = egui::Color32::from_rgba_unmultiplied(
                             self.config.color_rgba[0],
                             self.config.color_rgba[1],
                             self.config.color_rgba[2],
                             alpha,
                         );
+                        let sub_col = egui::Color32::from_rgba_unmultiplied(
+                            self.config.color_rgba[0],
+                            self.config.color_rgba[1],
+                            self.config.color_rgba[2],
+                            (alpha as f32 * 0.75) as u8,
+                        );
 
-                        let longest_line_len = sample_text.lines().map(|l| l.len()).max().unwrap_or(0);
-                        let text_w = longest_line_len as f32 * 7.5;
-                        let icon_w = if self.config.show_icon { (self.config.image_size * 0.6).clamp(10.0, 32.0) } else { 0.0 };
-                        let icon_gap = if self.config.show_icon && self.config.show_text && !sample_text.is_empty() { 8.0 } else { 0.0 };
-                        let total_content_w = icon_w + icon_gap + text_w;
+                        let font_id = egui::FontId::proportional((self.config.font_size * 0.42).clamp(9.0, 15.0));
+                        let sec_font_id = egui::FontId::proportional((self.config.corner_secondary_font_size * 0.42).clamp(8.0, 12.0));
 
-                        let line_len = self.config.line_length.clamp(20.0, 70.0);
-                        let gap = self.config.line_gap.clamp(6.0, 24.0);
+                        let lines: Vec<&str> = sample_text.lines().collect();
+                        let max_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+                        let char_w = font_id.size * 0.58;
+                        let text_w = if self.config.show_text { (max_chars as f32 * char_w).max(4.0) } else { 0.0 };
+                        let text_h = if self.config.show_text { lines.len().max(1) as f32 * (font_id.size * 1.25) } else { 0.0 };
 
-                        let is_corner_preview = self.config.is_corner_mode();
+                        let icon_size = if self.config.show_icon { (self.config.image_size * 0.35).clamp(10.0, 22.0) } else { 0.0 };
+                        let icon_gap = if self.config.show_icon && self.config.show_text && !sample_text.is_empty() { 6.0 } else { 0.0 };
+                        let top_w = icon_size + icon_gap + text_w;
 
-                        if !is_corner_preview && self.config.show_lines_next_to_text {
-                            let left_end = center.x - total_content_w * 0.5 - gap;
-                            let left_start = left_end - line_len;
-                            painter.line_segment([egui::pos2(left_start, center.y), egui::pos2(left_end, center.y)], egui::Stroke::new(1.5, col));
+                        let sec_chars = sample_sec_text.chars().count();
+                        let sec_w = if !sample_sec_text.is_empty() { sec_chars as f32 * sec_font_id.size * 0.58 } else { 0.0 };
 
-                            let right_start = center.x + total_content_w * 0.5 + gap;
-                            let right_end = right_start + line_len;
-                            painter.line_segment([egui::pos2(right_start, center.y), egui::pos2(right_end, center.y)], egui::Stroke::new(1.5, col));
-                        }
+                        let block_w = top_w.max(sec_w);
 
-                        let (mut cx, cy) = if is_corner_preview {
-                            match self.config.corner_position.as_str() {
-                                "bottom_left" => (rect.left() + 20.0, rect.bottom() - 24.0),
-                                "top_right" => (rect.right() - total_content_w - 20.0, rect.top() + 24.0),
+                        if self.config.is_corner_mode() {
+                            // Realistic Corner Preview
+                            let (pos_x, pos_y) = match self.config.corner_position.as_str() {
+                                "bottom_left" => (rect.left() + 20.0, rect.bottom() - 36.0),
+                                "top_right" => (rect.right() - block_w - 20.0, rect.top() + 24.0),
                                 "top_left" => (rect.left() + 20.0, rect.top() + 24.0),
-                                _ => (rect.right() - total_content_w - 20.0, rect.bottom() - 24.0),
+                                _ => (rect.right() - block_w - 20.0, rect.bottom() - 36.0),
+                            };
+
+                            let align_right = self.config.corner_position == "bottom_right" || self.config.corner_position == "top_right";
+                            let mut start_x = if align_right { pos_x + (block_w - top_w) } else { pos_x };
+
+                            // Draw Icon
+                            if self.config.show_icon {
+                                let icon_center = egui::pos2(start_x + icon_size * 0.5, pos_y + text_h * 0.45);
+                                if self.config.monochrome_icon {
+                                    painter.circle_filled(icon_center, icon_size * 0.45, main_col);
+                                } else {
+                                    // 3D icon accent
+                                    painter.circle_filled(icon_center, icon_size * 0.45, egui::Color32::from_rgb(233, 84, 32));
+                                }
+                                start_x += icon_size + icon_gap;
+                            }
+
+                            // Draw Main Text
+                            if self.config.show_text && !lines.is_empty() {
+                                for (idx, line) in lines.iter().enumerate() {
+                                    let ly = pos_y + idx as f32 * (font_id.size * 1.25);
+                                    let tx = if align_right { start_x + text_w } else { start_x };
+                                    let align = if align_right { egui::Align2::RIGHT_TOP } else { egui::Align2::LEFT_TOP };
+                                    painter.text(egui::pos2(tx, ly), align, line, font_id.clone(), main_col);
+                                }
+                            }
+
+                            // Draw Secondary Subtitle Text
+                            if !sample_sec_text.is_empty() {
+                                let sec_y = pos_y + text_h + 3.0;
+                                let sx = if align_right { pos_x + block_w } else { pos_x };
+                                let align = if align_right { egui::Align2::RIGHT_TOP } else { egui::Align2::LEFT_TOP };
+                                painter.text(egui::pos2(sx, sec_y), align, &sample_sec_text, sec_font_id, sub_col);
                             }
                         } else {
-                            (center.x - total_content_w * 0.5, center.y)
-                        };
+                            // Realistic Full Screen Grid Preview (repeated stamps)
+                            let spacing_x = (self.config.spacing_x * 0.32).clamp(90.0, 220.0);
+                            let spacing_y = (self.config.spacing_y * 0.32).clamp(40.0, 90.0);
 
-                        if self.config.show_icon {
-                            let icon_r = (icon_w * 0.45).clamp(4.0, 15.0);
-                            painter.circle_filled(egui::pos2(cx + icon_w * 0.5, cy), icon_r, col);
-                            cx += icon_w + icon_gap;
-                        }
-
-                        if self.config.show_text && !sample_text.is_empty() {
-                            let lines: Vec<&str> = sample_text.lines().collect();
-                            let start_y = cy - (lines.len().saturating_sub(1) as f32 * 14.0) * 0.5;
-                            for (idx, line) in lines.iter().enumerate() {
-                                let ly = start_y + idx as f32 * 14.0;
-                                painter.text(
-                                    egui::pos2(cx + text_w * 0.5, ly),
-                                    egui::Align2::CENTER_CENTER,
-                                    line,
-                                    egui::FontId::proportional(12.5),
-                                    col,
+                            // Vertical decorative lines in grid mode
+                            if self.config.show_vertical_lines {
+                                let line_alpha = ((self.config.line_color_rgba[3] as f32 / 255.0) * self.config.opacity * 255.0) as u8;
+                                let lcol = egui::Color32::from_rgba_unmultiplied(
+                                    self.config.line_color_rgba[0],
+                                    self.config.line_color_rgba[1],
+                                    self.config.line_color_rgba[2],
+                                    line_alpha.max(30),
                                 );
+                                let mut lx = rect.left() + 25.0;
+                                while lx < rect.right() {
+                                    painter.line_segment([egui::pos2(lx, rect.top() + 8.0), egui::pos2(lx, rect.bottom() - 8.0)], egui::Stroke::new(1.0, lcol));
+                                    lx += spacing_x;
+                                }
+                            }
+
+                            // Grid pattern repetitions
+                            let mut row = 0;
+                            let mut gy = rect.top() + 20.0;
+                            while gy < rect.bottom() - 15.0 {
+                                let stagger = if row % 2 == 1 { spacing_x * 0.4 } else { 0.0 };
+                                let mut gx = rect.left() + 15.0 + stagger;
+                                while gx < rect.right() + spacing_x {
+                                    let mut cur_x = gx;
+                                    if self.config.show_icon {
+                                        let icon_c = egui::pos2(cur_x + icon_size * 0.4, gy + 4.0);
+                                        painter.circle_filled(icon_c, (icon_size * 0.35).max(3.0), main_col);
+                                        cur_x += icon_size * 0.8 + 4.0;
+                                    }
+
+                                    if self.config.show_text && !sample_text.is_empty() {
+                                        let preview_str = lines.first().copied().unwrap_or("");
+                                        painter.text(egui::pos2(cur_x, gy), egui::Align2::LEFT_TOP, preview_str, font_id.clone(), main_col);
+                                    }
+
+                                    gx += spacing_x;
+                                }
+                                gy += spacing_y;
+                                row += 1;
                             }
                         }
                     });
@@ -704,7 +861,7 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
         "Deskstamp Settings",
         native_options,
         Box::new(|cc| Ok(Box::new(SettingsApp::new(cc)))),
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    ).map_err(|e| std::io::Error::other(e.to_string()))?;
 
     Ok(())
 }
