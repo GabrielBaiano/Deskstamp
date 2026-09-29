@@ -20,6 +20,7 @@ This roadmap outlines the planned development milestones for **Deskstamp**.
 - [x] 2D matrix transformations with rotation, spacing, and staggered tile layouts.
 - [x] Dynamic tokens (`{user}`, `{hostname}`, `{date}`, `{time}`).
 - [x] UNIX domain socket IPC interface for runtime `toggle` and `reload`.
+- [ ] More options for grid
 
 ### Phase 2: Vector Graphics & Effects (In Progress)
 - [ ] SVG logo and image watermark rendering via `resvg`.
