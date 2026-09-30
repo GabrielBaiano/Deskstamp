@@ -1,10 +1,19 @@
 use chrono::Local;
 
 pub fn resolve_tokens(template: &str) -> String {
-    resolve_tokens_with_workspace(template, None)
+    resolve_tokens_with_context(template, None, 1, None)
 }
 
 pub fn resolve_tokens_with_workspace(template: &str, workspace: Option<&str>) -> String {
+    resolve_tokens_with_context(template, workspace, 1, None)
+}
+
+pub fn resolve_tokens_with_context(
+    template: &str,
+    workspace: Option<&str>,
+    screen_idx: usize,
+    screen_name: Option<&str>,
+) -> String {
     let now = Local::now();
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
     let host = hostname::get()
@@ -12,10 +21,20 @@ pub fn resolve_tokens_with_workspace(template: &str, workspace: Option<&str>) ->
         .unwrap_or_else(|_| "localhost".to_string());
     let ws = workspace.unwrap_or("1");
 
+    let screen_str = screen_idx.to_string();
+    let screen_name_str = screen_name
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("Display {}", screen_idx));
+
     let mut result = template
         .replace("{user}", &user)
         .replace("{hostname}", &host)
-        .replace("{workspace}", ws);
+        .replace("{workspace}", ws)
+        .replace("{workspace_num}", ws)
+        .replace("{workspace_name}", ws)
+        .replace("{screen}", &screen_str)
+        .replace("{display}", &screen_str)
+        .replace("{screen_name}", &screen_name_str);
 
     // Fast resolution for simple tokens
     result = result.replace("{date}", &now.format("%Y-%m-%d").to_string());
@@ -65,5 +84,11 @@ mod tests {
 
         let res_default = resolve_tokens("Workspace: {workspace}");
         assert_eq!(res_default, "Workspace: 1");
+    }
+
+    #[test]
+    fn test_resolve_screen_token() {
+        let res = resolve_tokens_with_context("Tela {screen} ({screen_name}) - Área {workspace}", Some("2"), 2, Some("DP-1"));
+        assert_eq!(res, "Tela 2 (DP-1) - Área 2");
     }
 }

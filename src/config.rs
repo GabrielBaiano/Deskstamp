@@ -125,6 +125,36 @@ pub struct WatermarkConfig {
 
     #[serde(default = "default_workspace_stamps")]
     pub workspace_stamps: std::collections::HashMap<String, String>,
+
+    #[serde(default = "default_corner_style")]
+    pub corner_style: String, // "capsule" (Apple Glass Pill) or "minimal"
+
+    #[serde(default = "default_show_screen_indicator")]
+    pub show_screen_indicator: bool,
+
+    #[serde(default = "default_show_workspace_indicator")]
+    pub show_workspace_indicator: bool,
+
+    #[serde(default = "default_single_line_connector")]
+    pub single_line_connector: bool,
+
+    #[serde(default = "default_letter_spacing")]
+    pub letter_spacing: f32,
+
+    #[serde(default = "default_corner_show_background")]
+    pub corner_show_background: bool,
+
+    #[serde(default = "default_corner_bg_opacity")]
+    pub corner_bg_opacity: f32,
+
+    #[serde(default = "default_corner_show_border")]
+    pub corner_show_border: bool,
+
+    #[serde(default = "default_corner_mouse_dodge")]
+    pub corner_mouse_dodge: bool,
+
+    #[serde(default = "default_corner_font_size")]
+    pub corner_font_size: f32,
 }
 
 fn default_layout() -> String { "grid".to_string() }
@@ -134,6 +164,16 @@ fn default_corner_margin_y() -> f32 { 40.0 }
 fn default_corner_secondary_text() -> String { String::new() }
 fn default_corner_secondary_font_size() -> f32 { 13.0 }
 fn default_workspace_stamps() -> std::collections::HashMap<String, String> { std::collections::HashMap::new() }
+fn default_corner_style() -> String { "capsule".to_string() }
+fn default_show_screen_indicator() -> bool { true }
+fn default_show_workspace_indicator() -> bool { true }
+fn default_single_line_connector() -> bool { true }
+fn default_letter_spacing() -> f32 { 0.0 }
+fn default_corner_show_background() -> bool { true }
+fn default_corner_bg_opacity() -> f32 { 0.70 }
+fn default_corner_show_border() -> bool { true }
+fn default_corner_mouse_dodge() -> bool { false }
+fn default_corner_font_size() -> f32 { 0.0 }
 
 fn default_show_text() -> bool { true }
 fn default_show_icon() -> bool { true }
@@ -217,6 +257,16 @@ impl Default for WatermarkConfig {
             corner_secondary_text: default_corner_secondary_text(),
             corner_secondary_font_size: default_corner_secondary_font_size(),
             workspace_stamps: default_workspace_stamps(),
+            corner_style: default_corner_style(),
+            show_screen_indicator: default_show_screen_indicator(),
+            show_workspace_indicator: default_show_workspace_indicator(),
+            single_line_connector: default_single_line_connector(),
+            letter_spacing: default_letter_spacing(),
+            corner_show_background: default_corner_show_background(),
+            corner_bg_opacity: default_corner_bg_opacity(),
+            corner_show_border: default_corner_show_border(),
+            corner_mouse_dodge: default_corner_mouse_dodge(),
+            corner_font_size: default_corner_font_size(),
         }
     }
 }
@@ -289,6 +339,10 @@ mod tests {
         assert_eq!(parsed.corner_position, "bottom_right");
         assert_eq!(parsed.corner_margin_x, 40.0);
         assert_eq!(parsed.corner_margin_y, 40.0);
+        assert!(parsed.corner_show_background);
+        assert_eq!(parsed.corner_bg_opacity, 0.70);
+        assert!(parsed.corner_show_border);
+        assert!(!parsed.corner_mouse_dodge);
         assert!(parsed.workspace_stamps.is_empty());
     }
 

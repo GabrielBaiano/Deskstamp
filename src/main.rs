@@ -53,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let output_file = args.get(2).map(|s| s.as_str()).unwrap_or("deskstamp_preview.png");
             let mut cfg = WatermarkConfig::load();
             cfg.active = true;
-            let renderer = WatermarkRenderer::new(cfg.font_path.as_deref())
+            let renderer = WatermarkRenderer::new_with_family(cfg.font_path.as_deref(), &cfg.font_family)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
 
             let width = 1920;
@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let mut temp_buf = vec![0u8; (width * height * 4) as usize];
             let ws_arg = args.get(3).map(|s| s.as_str());
-            renderer.render_to_buffer(&mut temp_buf, width, height, width * 4, &cfg, ws_arg);
+            renderer.render_to_buffer(&mut temp_buf, width, height, width * 4, &cfg, ws_arg, 1, Some("Display 1"));
 
             let temp_pixmap = PixmapMut::from_bytes(&mut temp_buf, width, height).unwrap();
             pixmap.draw_pixmap(0, 0, temp_pixmap.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
@@ -136,6 +136,7 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 IpcCommand::Reload => {
                     app.config = WatermarkConfig::load();
+                    app.active_corner_position = None;
                     app.renderer.update_font(app.config.font_path.as_deref(), &app.config.font_family);
                     active_clone.store(app.config.active, Ordering::Relaxed);
                     app.draw(&qh_clone);
@@ -196,7 +197,7 @@ fn run_overlay(is_test: bool) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let has_dynamic_time = app.config.text.contains("{time");
+        let has_dynamic_time = app.config.text.contains("{time") || app.config.corner_secondary_text.contains("{time");
         if app.config.active && has_dynamic_time {
             app.draw(&qh_timer);
             TimeoutAction::ToDuration(Duration::from_secs(app.config.update_interval_secs.max(1)))

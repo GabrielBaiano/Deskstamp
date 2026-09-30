@@ -14,6 +14,11 @@ use smithay_client_toolkit::{
         WaylandSurface,
     },
     shm::{slot::SlotPool, Shm, ShmHandler},
+    seat::{
+        SeatHandler, SeatState, Capability,
+        pointer::{PointerHandler, PointerEvent, PointerEventKind},
+    },
+    delegate_seat, delegate_pointer,
 };
 use wayland_client::{
     globals::GlobalList,
@@ -42,6 +47,7 @@ pub struct OverlayOutput {
     pub width: u32,
     pub height: u32,
     pub configured: bool,
+    pub last_damage_rect: Option<[i32; 4]>,
 }
 
 pub struct CosmarkApp {
@@ -50,6 +56,8 @@ pub struct CosmarkApp {
     pub compositor_state: CompositorState,
     pub shm: Shm,
     pub layer_shell: LayerShell,
+    pub seat_state: SeatState,
+    pub pointers: Vec<wayland_client::protocol::wl_pointer::WlPointer>,
     pub pool: SlotPool,
     pub outputs: Vec<OverlayOutput>,
     pub renderer: WatermarkRenderer,
@@ -60,6 +68,7 @@ pub struct CosmarkApp {
     pub workspace_manager: Option<ExtWorkspaceManagerV1>,
     pub workspaces: HashMap<wayland_client::backend::ObjectId, WorkspaceData>,
     pub active_workspace: Option<String>,
+    pub active_corner_position: Option<String>,
 }
 
 impl CosmarkApp {
@@ -70,9 +79,16 @@ impl CosmarkApp {
         let shm = Shm::bind(globals, qh)?;
         let layer_shell = LayerShell::bind(globals, qh)?;
         let pool = SlotPool::new(1920 * 1080 * 4, &shm)?;
-        let renderer = WatermarkRenderer::new(None)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
         let config = WatermarkConfig::load();
+        let renderer = WatermarkRenderer::new_with_family(config.font_path.as_deref(), &config.font_family)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotFound, e))?;
+        let mut seat_state = SeatState::new(globals, qh);
+        let mut pointers = Vec::new();
+        for seat in seat_state.seats() {
+            if let Ok(ptr) = seat_state.get_pointer(qh, &seat) {
+                pointers.push(ptr);
+            }
+        }
         let workspace_manager: Option<ExtWorkspaceManagerV1> = globals.bind(qh, 1..=1, ()).ok();
 
         let mut app = Self {
@@ -81,6 +97,8 @@ impl CosmarkApp {
             compositor_state,
             shm,
             layer_shell,
+            seat_state,
+            pointers,
             pool,
             outputs: Vec::new(),
             renderer,
@@ -91,6 +109,7 @@ impl CosmarkApp {
             workspace_manager,
             workspaces: HashMap::new(),
             active_workspace: None,
+            active_corner_position: None,
         };
 
         // Create surfaces for already discovered outputs
@@ -130,11 +149,37 @@ impl CosmarkApp {
             width: 0,
             height: 0,
             configured: false,
+            last_damage_rect: None,
         });
     }
 
+    pub fn trigger_mouse_dodge(&mut self, qh: &QueueHandle<Self>) {
+        let current_pos = self.active_corner_position.as_deref().unwrap_or(&self.config.corner_position);
+        let next_pos = match current_pos {
+            "top_left" => "top_right",
+            "top_right" => "top_left",
+            "bottom_left" => "bottom_right",
+            "bottom_right" => "bottom_left",
+            _ => "top_right",
+        };
+        self.active_corner_position = Some(next_pos.to_string());
+        self.draw(qh);
+    }
+
     pub fn draw(&mut self, _qh: &QueueHandle<Self>) {
-        for item in &mut self.outputs {
+        let active_ws = self.active_workspace.as_deref();
+
+        // Effective config with corner position override if dodged
+        let mut effective_cfg = self.config.clone();
+        if effective_cfg.is_corner_mode() && effective_cfg.corner_mouse_dodge {
+            if let Some(pos) = &self.active_corner_position {
+                effective_cfg.corner_position = pos.clone();
+            }
+        } else {
+            self.active_corner_position = None;
+        }
+
+        for (idx, item) in self.outputs.iter_mut().enumerate() {
             if !item.configured || item.width == 0 || item.height == 0 {
                 continue;
             }
@@ -156,16 +201,88 @@ impl CosmarkApp {
                 }
             };
 
-            self.renderer.render_to_buffer(canvas, width, height, stride, &self.config, self.active_workspace.as_deref());
+            let screen_idx = idx + 1;
+            let screen_name = format!("Display {}", screen_idx);
+
+            let dirty_rect = self.renderer.render_to_buffer(
+                canvas,
+                width,
+                height,
+                stride,
+                &effective_cfg,
+                active_ws,
+                screen_idx,
+                Some(&screen_name),
+            );
 
             // Convert tiny-skia's RGBA pixel buffer to Wayland wl_shm ARGB8888 (little-endian BGRA in memory)
-            for chunk in canvas.chunks_exact_mut(4) {
-                chunk.swap(0, 2);
+            if effective_cfg.is_corner_mode() {
+                if let Some([rx, ry, rw, rh]) = dirty_rect {
+                    for y in ry..(ry + rh).min(height as i32) {
+                        let row_start = (y as usize * stride as usize) + (rx as usize * 4);
+                        let row_end = row_start + (rw as usize * 4);
+                        if row_end <= canvas.len() {
+                            for chunk in canvas[row_start..row_end].chunks_exact_mut(4) {
+                                chunk.swap(0, 2);
+                            }
+                        }
+                    }
+                }
+            } else {
+                for chunk in canvas.chunks_exact_mut(4) {
+                    chunk.swap(0, 2);
+                }
             }
 
             let wl_surf = item.layer_surface.wl_surface();
             buffer.attach_to(wl_surf).expect("attach buffer");
-            wl_surf.damage_buffer(0, 0, width as i32, height as i32);
+
+            if effective_cfg.is_corner_mode() {
+                if let Some(new_rect) = dirty_rect {
+                    // 1. Damage previous rect if it moved, so compositor clears previous position
+                    if let Some(old_rect) = item.last_damage_rect {
+                        if old_rect != new_rect {
+                            wl_surf.damage_buffer(old_rect[0], old_rect[1], old_rect[2], old_rect[3]);
+                        }
+                    }
+                    // 2. Damage new bounding box only (never full screen)
+                    wl_surf.damage_buffer(new_rect[0], new_rect[1], new_rect[2], new_rect[3]);
+                    item.last_damage_rect = Some(new_rect);
+
+                    // 3. Update input region for mouse dodge detection or pass-through
+                    if effective_cfg.corner_mouse_dodge {
+                        if let Ok(region) = Region::new(&self.compositor_state) {
+                            let pad = 12;
+                            region.add(
+                                (new_rect[0] - pad).max(0),
+                                (new_rect[1] - pad).max(0),
+                                new_rect[2] + pad * 2,
+                                new_rect[3] + pad * 2,
+                            );
+                            wl_surf.set_input_region(Some(region.wl_region()));
+                        }
+                    } else {
+                        if let Ok(region) = Region::new(&self.compositor_state) {
+                            wl_surf.set_input_region(Some(region.wl_region()));
+                        }
+                    }
+                } else {
+                    if let Some(old_rect) = item.last_damage_rect.take() {
+                        wl_surf.damage_buffer(old_rect[0], old_rect[1], old_rect[2], old_rect[3]);
+                    }
+                    if let Ok(region) = Region::new(&self.compositor_state) {
+                        wl_surf.set_input_region(Some(region.wl_region()));
+                    }
+                }
+            } else {
+                // Grid mode covers the entire screen
+                wl_surf.damage_buffer(0, 0, width as i32, height as i32);
+                item.last_damage_rect = Some([0, 0, width as i32, height as i32]);
+                if let Ok(region) = Region::new(&self.compositor_state) {
+                    wl_surf.set_input_region(Some(region.wl_region()));
+                }
+            }
+
             item.layer_surface.commit();
         }
 
@@ -281,8 +398,74 @@ impl ProvidesRegistryState for CosmarkApp {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
+    registry_handlers![OutputState, SeatState];
 }
+
+impl SeatHandler for CosmarkApp {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.seat_state
+    }
+
+    fn new_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wayland_client::protocol::wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wayland_client::protocol::wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer {
+            if let Ok(ptr) = self.seat_state.get_pointer(qh, &seat) {
+                self.pointers.push(ptr);
+            }
+        }
+    }
+
+    fn remove_capability(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        _seat: wayland_client::protocol::wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer {
+            self.pointers.clear();
+        }
+    }
+
+    fn remove_seat(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _seat: wayland_client::protocol::wl_seat::WlSeat) {}
+}
+
+impl PointerHandler for CosmarkApp {
+    fn pointer_frame(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        _pointer: &wayland_client::protocol::wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        for event in events {
+            match event.kind {
+                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                    if self.config.is_corner_mode() && self.config.corner_mouse_dodge {
+                        self.trigger_mouse_dodge(qh);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+delegate_compositor!(CosmarkApp);
+delegate_output!(CosmarkApp);
+delegate_shm!(CosmarkApp);
+delegate_layer!(CosmarkApp);
+delegate_seat!(CosmarkApp);
+delegate_pointer!(CosmarkApp);
+delegate_registry!(CosmarkApp);
 
 impl OutputHandler for CosmarkApp {
     fn output_state(&mut self) -> &mut OutputState {
@@ -369,9 +552,3 @@ impl LayerShellHandler for CosmarkApp {
         self.draw(qh);
     }
 }
-
-delegate_compositor!(CosmarkApp);
-delegate_output!(CosmarkApp);
-delegate_shm!(CosmarkApp);
-delegate_layer!(CosmarkApp);
-delegate_registry!(CosmarkApp);
