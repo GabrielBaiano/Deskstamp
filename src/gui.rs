@@ -61,6 +61,8 @@ pub struct SettingsApp {
     last_check_frame: u64,
     new_ws_name: String,
     new_ws_text: String,
+    last_notify_instant: Option<std::time::Instant>,
+    pending_notify: bool,
 }
 
 impl SettingsApp {
@@ -76,6 +78,8 @@ impl SettingsApp {
             last_check_frame: 0,
             new_ws_name: String::new(),
             new_ws_text: String::new(),
+            last_notify_instant: None,
+            pending_notify: false,
         };
 
         if !app.daemon_running {
@@ -183,7 +187,7 @@ impl eframe::App for SettingsApp {
                 self.selected_tab = 1;
             }
 
-            // Right status indicator
+            // Right status indicator & Reset button
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.config.active && self.daemon_running {
                     ui.colored_label(egui::Color32::from_rgb(72, 199, 116), "● Overlay Active");
@@ -191,6 +195,21 @@ impl eframe::App for SettingsApp {
                     ui.colored_label(egui::Color32::from_rgb(240, 180, 70), "○ Watermark Hidden");
                 } else {
                     ui.colored_label(egui::Color32::from_rgb(240, 90, 90), "✕ Daemon Offline");
+                }
+
+                ui.add_space(8.0);
+
+                let reset_btn = egui::Button::new(
+                    egui::RichText::new("Reset")
+                        .size(12.0)
+                        .color(egui::Color32::from_rgb(215, 220, 235)),
+                )
+                .fill(egui::Color32::from_rgb(44, 48, 58))
+                .corner_radius(egui::CornerRadius::same(12));
+
+                if ui.add_sized([64.0, 24.0], reset_btn).on_hover_text("Reset all settings to default").clicked() {
+                    self.config = WatermarkConfig::default();
+                    changed = true;
                 }
             });
         });
@@ -227,41 +246,67 @@ impl eframe::App for SettingsApp {
                     });
 
 
-                    // Card 2: Appearance & Geometry
-                    let card2 = egui::Frame::new()
+                    // Card 1b: Layout Mode Selection
+                    let card_mode = egui::Frame::new()
                         .fill(card_bg)
                         .stroke(card_stroke)
                         .corner_radius(egui::CornerRadius::same(10))
                         .inner_margin(egui::Margin::symmetric(16, 12));
 
-                    card2.show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
-
-                        // Layout Mode (Grid vs Corner)
-                        cosmic_row(ui, "Layout Style", Some("Watermark placement across your screen"), |ui| {
+                    card_mode.show(ui, |ui| {
+                        cosmic_row(ui, "Layout Mode", Some("Watermark placement style across your workspace"), |ui| {
                             ui.horizontal(|ui| {
-                                let is_grid = self.config.layout == "grid";
-                                let is_corner = self.config.layout == "corner";
+                                let is_corner = self.config.is_corner_mode();
+                                let is_grid = !is_corner;
+                                if ui.selectable_label(is_corner, "Discreet Corner (Pill HUD)").clicked() {
+                                    self.config.layout = "corner".to_string();
+                                    changed = true;
+                                }
                                 if ui.selectable_label(is_grid, "Full Screen Grid").clicked() {
                                     self.config.layout = "grid".to_string();
                                     changed = true;
                                 }
-                                if ui.selectable_label(is_corner, "Discreet Corner (Windows Style)").clicked() {
-                                    self.config.layout = "corner".to_string();
+                            });
+                        });
+                    });
+
+                    // Card 2: Corner Mode Dedicated Settings (only when in corner mode)
+                    if self.config.is_corner_mode() {
+                        let card_corner = egui::Frame::new()
+                            .fill(card_bg)
+                            .stroke(card_stroke)
+                            .corner_radius(egui::CornerRadius::same(10))
+                            .inner_margin(egui::Margin::symmetric(16, 12));
+
+                        card_corner.show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Corner Mode Settings").strong().size(13.5).color(egui::Color32::from_rgb(235, 238, 245)));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(egui::RichText::new("Discreet HUD watermark").size(11.0).color(egui::Color32::from_rgb(155, 160, 175)));
+                                });
+                            });
+
+                            ui.separator();
+
+                            // 1. Mouse Dodge / Evasion
+                            cosmic_row(ui, "Smart Mouse Evasion (Dodge)", Some("Automatically jumps to opposite corner on mouse hover so it never blocks windows or tabs"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.corner_mouse_dodge).changed() {
                                     changed = true;
                                 }
                             });
-                        });
 
-                        if self.config.is_corner_mode() {
                             ui.separator();
-                            cosmic_row(ui, "Corner Position", Some("Anchor position on display"), |ui| {
+
+                            // 2. Corner Position
+                            cosmic_row(ui, "Anchor Position", Some("Screen corner placement"), |ui| {
                                 ui.horizontal(|ui| {
                                     for (pos_id, label) in [
-                                        ("bottom_right", "Bottom-Right"),
-                                        ("bottom_left", "Bottom-Left"),
-                                        ("top_right", "Top-Right"),
                                         ("top_left", "Top-Left"),
+                                        ("top_right", "Top-Right"),
+                                        ("bottom_left", "Bottom-Left"),
+                                        ("bottom_right", "Bottom-Right"),
                                     ] {
                                         if ui.selectable_label(self.config.corner_position == pos_id, label).clicked() {
                                             self.config.corner_position = pos_id.to_string();
@@ -272,6 +317,8 @@ impl eframe::App for SettingsApp {
                             });
 
                             ui.separator();
+
+                            // 3. Corner Margins
                             cosmic_row(ui, "Corner Margins", Some("Distance from screen edges"), |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("X:");
@@ -286,13 +333,101 @@ impl eframe::App for SettingsApp {
                             });
 
                             ui.separator();
-                            cosmic_row(ui, "Secondary Bottom Text", Some("Optional subtitle (e.g. 'Go to Settings to activate.')"), |ui| {
+
+                            // 4. Corner Style
+                            cosmic_row(ui, "Corner Style", Some("Apple Glass Capsule HUD or Minimal Float"), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.selectable_label(self.config.corner_style == "capsule", "Apple Capsule (Pill)").clicked() {
+                                        self.config.corner_style = "capsule".to_string();
+                                        changed = true;
+                                    }
+                                    if ui.selectable_label(self.config.corner_style == "minimal", "Minimal Float").clicked() {
+                                        self.config.corner_style = "minimal".to_string();
+                                        changed = true;
+                                    }
+                                });
+                            });
+
+                            if self.config.corner_style == "capsule" {
+                                ui.separator();
+
+                                // 5. Toggle Capsule Background
+                                cosmic_row(ui, "Draw Capsule Background", Some("Dark translucent squircle glass & shadow (disable for clean floating text)"), |ui| {
+                                    if cosmic_switch(ui, &mut self.config.corner_show_background).changed() {
+                                        changed = true;
+                                    }
+                                });
+
+                                if self.config.corner_show_background {
+                                    ui.separator();
+                                    cosmic_row(ui, "Background Opacity", Some("Independent capsule glass transparency"), |ui| {
+                                        let mut bg_pct = self.config.corner_bg_opacity * 100.0;
+                                        if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut bg_pct, 5.0..=100.0).suffix("%")).changed() {
+                                            self.config.corner_bg_opacity = bg_pct / 100.0;
+                                            changed = true;
+                                        }
+                                    });
+                                }
+
+                                ui.separator();
+
+                                // 6. Toggle Capsule Border
+                                cosmic_row(ui, "Hairline Border", Some("1px subtle translucent perimeter outline"), |ui| {
+                                    if cosmic_switch(ui, &mut self.config.corner_show_border).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            }
+
+                            ui.separator();
+
+                            // 7. Corner Font Size Override
+                            cosmic_row(ui, "Corner Font Size", Some("Dedicated size for corner (0 = inherit general font size)"), |ui| {
+                                ui.horizontal(|ui| {
+                                    if self.config.corner_font_size <= 0.0 {
+                                        if ui.button("Override...").clicked() {
+                                            self.config.corner_font_size = 18.0;
+                                            changed = true;
+                                        }
+                                        ui.label(egui::RichText::new(format!("Inherited ({} px)", self.config.font_size as i32)).color(egui::Color32::from_rgb(155, 160, 175)));
+                                    } else {
+                                        if ui.add_sized([150.0, 24.0], egui::Slider::new(&mut self.config.corner_font_size, 10.0..=48.0).suffix(" px")).changed() {
+                                            changed = true;
+                                        }
+                                        if ui.button("Reset").on_hover_text("Inherit general font size").clicked() {
+                                            self.config.corner_font_size = 0.0;
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                            });
+
+                            ui.separator();
+
+                            // 8. Indicators
+                            cosmic_row(ui, "Screen Indicator", Some("Display current screen number badge [ 1 ]"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.show_screen_indicator).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            ui.separator();
+
+                            cosmic_row(ui, "Workspace Indicator", Some("Display current virtual desktop (e.g. 'Área 1')"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.show_workspace_indicator).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            ui.separator();
+
+                            cosmic_row(ui, "Secondary / Subtitle Text", Some("Optional bottom metadata line"), |ui| {
                                 if ui.add_sized([260.0, 26.0], egui::TextEdit::singleline(&mut self.config.corner_secondary_text).hint_text("Secondary text...")).changed() {
                                     changed = true;
                                 }
                             });
 
-                            if !self.config.corner_secondary_text.trim().is_empty() {
+                            if !self.config.corner_secondary_text.trim().is_empty() && self.config.corner_style != "capsule" {
                                 ui.separator();
                                 cosmic_row(ui, "Secondary Font Size", Some("Size of bottom subtitle line"), |ui| {
                                     if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.corner_secondary_font_size, 8.0..=36.0).suffix(" px")).changed() {
@@ -300,37 +435,198 @@ impl eframe::App for SettingsApp {
                                     }
                                 });
                             }
-                        }
+                        });
+                    }
 
-                        ui.separator();
+                    // Card 3: Grid Mode Dedicated Settings (only when in grid mode)
+                    if !self.config.is_corner_mode() {
+                        let card_grid = egui::Frame::new()
+                            .fill(card_bg)
+                            .stroke(card_stroke)
+                            .corner_radius(egui::CornerRadius::same(10))
+                            .inner_margin(egui::Margin::symmetric(16, 12));
 
-                        // Rotation
-                        cosmic_row(ui, "Rotation", Some("Angle of watermark text"), |ui| {
+                        card_grid.show(ui, |ui| {
+                            ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+
                             ui.horizontal(|ui| {
-                                if ui.button("0°").clicked() {
-                                    self.config.angle_deg = 0.0;
+                                ui.label(egui::RichText::new("Grid Mode Settings").strong().size(13.5).color(egui::Color32::from_rgb(235, 238, 245)));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(egui::RichText::new("Repeating pattern dispersion").size(11.0).color(egui::Color32::from_rgb(155, 160, 175)));
+                                });
+                            });
+
+                            ui.separator();
+
+                            // Rotation
+                            cosmic_row(ui, "Rotation", Some("Angle of repeating watermark grid"), |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button("0°").clicked() {
+                                        self.config.angle_deg = 0.0;
+                                        changed = true;
+                                    }
+                                    if ui.button("-20°").clicked() {
+                                        self.config.angle_deg = -20.0;
+                                        changed = true;
+                                    }
+                                    if ui.add_sized([160.0, 24.0], egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            });
+
+                            ui.separator();
+
+                            // Spacing X
+                            cosmic_row(ui, "Horizontal Spacing (X)", Some("Distance between repeating columns"), |ui| {
+                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.spacing_x, 100.0..=800.0).suffix(" px")).changed() {
                                     changed = true;
                                 }
-                                if ui.button("-20°").clicked() {
-                                    self.config.angle_deg = -20.0;
+                            });
+
+                            ui.separator();
+
+                            // Spacing Y
+                            cosmic_row(ui, "Vertical Spacing (Y)", Some("Distance between repeating rows"), |ui| {
+                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.spacing_y, 50.0..=600.0).suffix(" px")).changed() {
                                     changed = true;
                                 }
-                                if ui.add_sized([160.0, 24.0], egui::Slider::new(&mut self.config.angle_deg, -90.0..=90.0).suffix("°")).changed() {
+                            });
+
+                            ui.separator();
+
+                            // Stagger
+                            cosmic_row(ui, "Stagger Offset", Some("Horizontal offset on alternating rows"), |ui| {
+                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.stagger_offset, 0.0..=400.0).suffix(" px")).changed() {
                                     changed = true;
                                 }
+                            });
+
+                            ui.separator();
+
+                            // Lines Alongside Text
+                            cosmic_row(ui, "Lines Alongside Text", Some("Decorative framing lines flanking text"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.show_lines_next_to_text).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            if self.config.show_lines_next_to_text {
+                                ui.separator();
+                                cosmic_row(ui, "Single Dynamic Line", Some("Auto-resizing continuous line between texts (Apple style)"), |ui| {
+                                    if cosmic_switch(ui, &mut self.config.single_line_connector).changed() {
+                                        changed = true;
+                                    }
+                                });
+
+                                if !self.config.single_line_connector {
+                                    ui.separator();
+                                    cosmic_row(ui, "Line Length", Some("Static length for classic double stubs"), |ui| {
+                                        if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.line_length, 20.0..=160.0).suffix(" px")).changed() {
+                                            changed = true;
+                                        }
+                                    });
+                                }
+
+                                ui.separator();
+                                cosmic_row(ui, "Spacing to Text (Gap)", Some("Padding between text and framing line"), |ui| {
+                                    if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.line_gap, 6.0..=40.0).suffix(" px")).changed() {
+                                        changed = true;
+                                    }
+                                });
+
+                                ui.separator();
+                                cosmic_row(ui, "Dashed Pattern", None, |ui| {
+                                    if cosmic_switch(ui, &mut self.config.line_dashed).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            }
+
+                            ui.separator();
+
+                            // Vertical Lines
+                            cosmic_row(ui, "Vertical Grid Lines", Some("Column divider lines across entire screen"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.show_vertical_lines).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            if self.config.show_vertical_lines {
+                                ui.separator();
+                                cosmic_row(ui, "Line Width", None, |ui| {
+                                    if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.line_width, 0.5..=5.0).suffix(" px")).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            }
+
+                            ui.separator();
+
+                            // Diagonal Lines
+                            cosmic_row(ui, "Diagonal Grid Lines", Some("Angled cross lines over entire screen"), |ui| {
+                                if cosmic_switch(ui, &mut self.config.show_diagonal_lines).changed() {
+                                    changed = true;
+                                }
+                            });
+
+                            if self.config.show_diagonal_lines {
+                                ui.separator();
+                                cosmic_row(ui, "Diagonal Angle", None, |ui| {
+                                    if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.diagonal_line_angle, -90.0..=90.0).suffix("°")).changed() {
+                                        changed = true;
+                                    }
+                                });
+                                ui.separator();
+                                cosmic_row(ui, "Diagonal Spacing", None, |ui| {
+                                    if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.diagonal_line_spacing, 40.0..=400.0).suffix(" px")).changed() {
+                                        changed = true;
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    // Card 4: Typography, Colors & Content
+                    let card_content = egui::Frame::new()
+                        .fill(card_bg)
+                        .stroke(card_stroke)
+                        .corner_radius(egui::CornerRadius::same(10))
+                        .inner_margin(egui::Margin::symmetric(16, 12));
+
+                    card_content.show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
+
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Typography & Content").strong().size(13.5).color(egui::Color32::from_rgb(235, 238, 245)));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                ui.label(egui::RichText::new("Watermark text, font, colors and logo").size(11.0).color(egui::Color32::from_rgb(155, 160, 175)));
                             });
                         });
 
                         ui.separator();
 
-                        // Opacity
-                        cosmic_row(ui, "Opacity (Transparency)", Some("Subtle watermark visibility"), |ui| {
-                            let mut op_percent = self.config.opacity * 100.0;
-                            if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut op_percent, 2.0..=100.0).suffix("%")).changed() {
-                                self.config.opacity = op_percent / 100.0;
+                        // Show Text
+                        cosmic_row(ui, "Show Text", None, |ui| {
+                            if cosmic_switch(ui, &mut self.config.show_text).changed() {
+                                self.config.mode = match (self.config.show_text, self.config.show_icon) {
+                                    (true, true) => "both".to_string(),
+                                    (true, false) => "text".to_string(),
+                                    (false, true) => "image".to_string(),
+                                    (false, false) => "none".to_string(),
+                                };
                                 changed = true;
                             }
                         });
+
+                        if self.config.show_text {
+                            ui.separator();
+                            cosmic_row(ui, "Watermark Text", Some("Supports newlines & tokens ({workspace}, {user}, {hostname}, {time})"), |ui| {
+                                if ui.add_sized([260.0, 52.0], egui::TextEdit::multiline(&mut self.config.text)).changed() {
+                                    changed = true;
+                                }
+                            });
+                        }
 
                         ui.separator();
 
@@ -342,6 +638,9 @@ impl eframe::App for SettingsApp {
                                     .width(160.0)
                                     .show_ui(ui, |ui| {
                                         for font in [
+                                            "SF Pro Display",
+                                            "Inter",
+                                            "Helvetica Neue",
                                             "Liberation Sans",
                                             "Fira Sans",
                                             "FiraCode Nerd Font",
@@ -383,8 +682,17 @@ impl eframe::App for SettingsApp {
 
                         ui.separator();
 
+                        // Letter Spacing (Tracking)
+                        cosmic_row(ui, "Letter Spacing (Tracking)", Some("Apple typography character tracking"), |ui| {
+                            if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.letter_spacing, -2.0..=10.0).suffix(" px")).changed() {
+                                changed = true;
+                            }
+                        });
+
+                        ui.separator();
+
                         // Font Size / Scale
-                        cosmic_row(ui, "Size", Some("Font size of watermark text"), |ui| {
+                        cosmic_row(ui, "General Font Size", Some("Base font size of watermark text"), |ui| {
                             if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.font_size, 10.0..=64.0).suffix(" px")).changed() {
                                 changed = true;
                             }
@@ -392,13 +700,11 @@ impl eframe::App for SettingsApp {
 
                         ui.separator();
 
-                        // Spacing
-                        cosmic_row(ui, "Spacing", Some("Distance between repeating elements"), |ui| {
-                            let mut spacing = self.config.spacing_x;
-                            if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut spacing, 120.0..=800.0).suffix(" px")).changed() {
-                                self.config.spacing_x = spacing;
-                                self.config.spacing_y = (spacing * 0.45).max(70.0);
-                                self.config.stagger_offset = spacing * 0.25;
+                        // Opacity
+                        cosmic_row(ui, "Opacity (Transparency)", Some("Subtle watermark visibility"), |ui| {
+                            let mut op_percent = self.config.opacity * 100.0;
+                            if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut op_percent, 2.0..=100.0).suffix("%")).changed() {
+                                self.config.opacity = op_percent / 100.0;
                                 changed = true;
                             }
                         });
@@ -420,39 +726,6 @@ impl eframe::App for SettingsApp {
                                 changed = true;
                             }
                         });
-                    });
-
-                    // Card 3: Watermark Content & Framing Lines
-                    let card3 = egui::Frame::new()
-                        .fill(card_bg)
-                        .stroke(card_stroke)
-                        .corner_radius(egui::CornerRadius::same(10))
-                        .inner_margin(egui::Margin::symmetric(16, 12));
-
-                    card3.show(ui, |ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 8.0);
-
-                        // Show Text
-                        cosmic_row(ui, "Show Text", None, |ui| {
-                            if cosmic_switch(ui, &mut self.config.show_text).changed() {
-                                self.config.mode = match (self.config.show_text, self.config.show_icon) {
-                                    (true, true) => "both".to_string(),
-                                    (true, false) => "text".to_string(),
-                                    (false, true) => "image".to_string(),
-                                    (false, false) => "none".to_string(),
-                                };
-                                changed = true;
-                            }
-                        });
-
-                        if self.config.show_text {
-                            ui.separator();
-                            cosmic_row(ui, "Watermark Text", Some("Supports newlines & tokens ({workspace}, {user}, {hostname}, {time})"), |ui| {
-                                if ui.add_sized([260.0, 52.0], egui::TextEdit::multiline(&mut self.config.text)).changed() {
-                                    changed = true;
-                                }
-                            });
-                        }
 
                         ui.separator();
 
@@ -505,38 +778,6 @@ impl eframe::App for SettingsApp {
                             ui.separator();
                             cosmic_row(ui, "Monochrome Logo", Some("Tint icon to match watermark text color"), |ui| {
                                 if cosmic_switch(ui, &mut self.config.monochrome_icon).changed() {
-                                    changed = true;
-                                }
-                            });
-                        }
-
-                        ui.separator();
-
-                        // Lines Alongside Text (with clean gap)
-                        cosmic_row(ui, "Lines Alongside Text", Some("Decorative lines framed with space around text"), |ui| {
-                            if cosmic_switch(ui, &mut self.config.show_lines_next_to_text).changed() {
-                                changed = true;
-                            }
-                        });
-
-                        if self.config.show_lines_next_to_text {
-                            ui.separator();
-                            cosmic_row(ui, "Line Length", None, |ui| {
-                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.line_length, 20.0..=160.0).suffix(" px")).changed() {
-                                    changed = true;
-                                }
-                            });
-
-                            ui.separator();
-                            cosmic_row(ui, "Spacing to Text (Gap)", Some("Prevents lines from cutting through text"), |ui| {
-                                if ui.add_sized([220.0, 24.0], egui::Slider::new(&mut self.config.line_gap, 6.0..=40.0).suffix(" px")).changed() {
-                                    changed = true;
-                                }
-                            });
-
-                            ui.separator();
-                            cosmic_row(ui, "Dashed Pattern", None, |ui| {
-                                if cosmic_switch(ui, &mut self.config.line_dashed).changed() {
                                     changed = true;
                                 }
                             });
@@ -631,7 +872,7 @@ impl eframe::App for SettingsApp {
                         );
                         painter.rect_filled(bar_rect, 3.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12));
 
-                        let sample_text = if self.config.show_text && !self.config.text.is_empty() {
+                        let mut sample_text = if self.config.show_text && !self.config.text.is_empty() {
                             crate::tokens::resolve_tokens(&self.config.text)
                         } else {
                             String::new()
@@ -642,6 +883,19 @@ impl eframe::App for SettingsApp {
                         } else {
                             String::new()
                         };
+
+                        if self.config.is_corner_mode() && self.config.corner_style == "capsule" {
+                            if self.config.show_workspace_indicator && !self.config.text.contains("{workspace") {
+                                if !sample_text.is_empty() {
+                                    sample_text.push_str(" · Área 1");
+                                } else {
+                                    sample_text = "Área 1".to_string();
+                                }
+                            }
+                            if !sample_sec_text.is_empty() {
+                                sample_text.push_str(&format!(" · {}", sample_sec_text));
+                            }
+                        }
 
                         let alpha = ((self.config.opacity * 255.0) as u8).max(60);
                         let main_col = egui::Color32::from_rgba_unmultiplied(
@@ -657,26 +911,33 @@ impl eframe::App for SettingsApp {
                             (alpha as f32 * 0.75) as u8,
                         );
 
-                        let font_id = egui::FontId::proportional((self.config.font_size * 0.42).clamp(9.0, 15.0));
+                        let effective_font = if self.config.is_corner_mode() && self.config.corner_font_size > 0.0 {
+                            self.config.corner_font_size
+                        } else {
+                            self.config.font_size
+                        };
+                        let font_id = egui::FontId::proportional((effective_font * 0.42).clamp(9.0, 15.0));
                         let sec_font_id = egui::FontId::proportional((self.config.corner_secondary_font_size * 0.42).clamp(8.0, 12.0));
 
                         let lines: Vec<&str> = sample_text.lines().collect();
                         let max_chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
                         let char_w = font_id.size * 0.58;
                         let text_w = if self.config.show_text { (max_chars as f32 * char_w).max(4.0) } else { 0.0 };
-                        let text_h = if self.config.show_text { lines.len().max(1) as f32 * (font_id.size * 1.25) } else { 0.0 };
+                        let text_h = if self.config.show_text { lines.len().max(1) as f32 * (font_id.size * 1.25) } else { 14.0 };
+
+                        let badge_w = if self.config.is_corner_mode() && self.config.show_screen_indicator { 18.0 } else { 0.0 };
+                        let badge_gap = if badge_w > 0.0 { 6.0 } else { 0.0 };
 
                         let icon_size = if self.config.show_icon { (self.config.image_size * 0.35).clamp(10.0, 22.0) } else { 0.0 };
                         let icon_gap = if self.config.show_icon && self.config.show_text && !sample_text.is_empty() { 6.0 } else { 0.0 };
-                        let top_w = icon_size + icon_gap + text_w;
+                        let top_w = badge_w + badge_gap + icon_size + icon_gap + text_w;
 
-                        let sec_chars = sample_sec_text.chars().count();
-                        let sec_w = if !sample_sec_text.is_empty() { sec_chars as f32 * sec_font_id.size * 0.58 } else { 0.0 };
+                        let sec_chars = if self.config.corner_style != "capsule" { sample_sec_text.chars().count() } else { 0 };
+                        let sec_w = if sec_chars > 0 { sec_chars as f32 * sec_font_id.size * 0.58 } else { 0.0 };
 
                         let block_w = top_w.max(sec_w);
 
                         if self.config.is_corner_mode() {
-                            // Realistic Corner Preview
                             let (pos_x, pos_y) = match self.config.corner_position.as_str() {
                                 "bottom_left" => (rect.left() + 20.0, rect.bottom() - 36.0),
                                 "top_right" => (rect.right() - block_w - 20.0, rect.top() + 24.0),
@@ -687,13 +948,40 @@ impl eframe::App for SettingsApp {
                             let align_right = self.config.corner_position == "bottom_right" || self.config.corner_position == "top_right";
                             let mut start_x = if align_right { pos_x + (block_w - top_w) } else { pos_x };
 
+                            // Draw Apple Capsule Pill Background
+                            if self.config.corner_style == "capsule" {
+                                let pill_h = (text_h.max(icon_size) + 10.0).max(24.0);
+                                let pill_w = top_w + 18.0;
+                                let px = if align_right { pos_x + block_w - pill_w } else { pos_x - 9.0 };
+                                let py = pos_y - 2.0;
+                                let pill_rect = egui::Rect::from_min_size(egui::pos2(px, py), egui::vec2(pill_w, pill_h));
+                                let radius = pill_h * 0.5;
+
+                                if self.config.corner_show_background {
+                                    let bg_a = ((self.config.corner_bg_opacity * 255.0) as u8).min(235);
+                                    painter.rect_filled(pill_rect.translate(egui::vec2(0.0, 2.0)), radius, egui::Color32::from_black_alpha((45.0 * self.config.corner_bg_opacity) as u8));
+                                    painter.rect_filled(pill_rect, radius, egui::Color32::from_rgba_unmultiplied(18, 20, 26, bg_a));
+                                }
+                                if self.config.corner_show_border {
+                                    painter.rect_stroke(pill_rect, radius, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 45)), egui::StrokeKind::Inside);
+                                }
+                            }
+
+                            // Draw Screen Badge [ 1 ]
+                            if self.config.show_screen_indicator {
+                                let b_rect = egui::Rect::from_min_size(egui::pos2(start_x, pos_y + 1.0), egui::vec2(16.0, text_h.max(14.0) - 2.0));
+                                painter.rect_filled(b_rect, 3.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 30));
+                                painter.rect_stroke(b_rect, 3.0, egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 50)), egui::StrokeKind::Inside);
+                                painter.text(b_rect.center(), egui::Align2::CENTER_CENTER, "1", egui::FontId::proportional(font_id.size * 0.8), egui::Color32::WHITE);
+                                start_x += badge_w + badge_gap;
+                            }
+
                             // Draw Icon
                             if self.config.show_icon {
                                 let icon_center = egui::pos2(start_x + icon_size * 0.5, pos_y + text_h * 0.45);
                                 if self.config.monochrome_icon {
                                     painter.circle_filled(icon_center, icon_size * 0.45, main_col);
                                 } else {
-                                    // 3D icon accent
                                     painter.circle_filled(icon_center, icon_size * 0.45, egui::Color32::from_rgb(233, 84, 32));
                                 }
                                 start_x += icon_size + icon_gap;
@@ -703,14 +991,14 @@ impl eframe::App for SettingsApp {
                             if self.config.show_text && !lines.is_empty() {
                                 for (idx, line) in lines.iter().enumerate() {
                                     let ly = pos_y + idx as f32 * (font_id.size * 1.25);
-                                    let tx = if align_right { start_x + text_w } else { start_x };
-                                    let align = if align_right { egui::Align2::RIGHT_TOP } else { egui::Align2::LEFT_TOP };
+                                    let tx = if align_right && self.config.corner_style != "capsule" { start_x + text_w } else { start_x };
+                                    let align = if align_right && self.config.corner_style != "capsule" { egui::Align2::RIGHT_TOP } else { egui::Align2::LEFT_TOP };
                                     painter.text(egui::pos2(tx, ly), align, line, font_id.clone(), main_col);
                                 }
                             }
 
-                            // Draw Secondary Subtitle Text
-                            if !sample_sec_text.is_empty() {
+                            // Draw Secondary Subtitle Text (only in minimal float)
+                            if self.config.corner_style != "capsule" && !sample_sec_text.is_empty() {
                                 let sec_y = pos_y + text_h + 3.0;
                                 let sx = if align_right { pos_x + block_w } else { pos_x };
                                 let align = if align_right { egui::Align2::RIGHT_TOP } else { egui::Align2::LEFT_TOP };
@@ -737,9 +1025,16 @@ impl eframe::App for SettingsApp {
                                 }
                             }
 
-                            // Grid pattern repetitions
+                            // Grid pattern repetitions with Single Dynamic Line
                             let mut row = 0;
                             let mut gy = rect.top() + 20.0;
+                            let line_col = egui::Color32::from_rgba_unmultiplied(
+                                self.config.line_color_rgba[0],
+                                self.config.line_color_rgba[1],
+                                self.config.line_color_rgba[2],
+                                ((self.config.line_color_rgba[3] as f32 / 255.0) * self.config.opacity * 255.0) as u8,
+                            );
+
                             while gy < rect.bottom() - 15.0 {
                                 let stagger = if row % 2 == 1 { spacing_x * 0.4 } else { 0.0 };
                                 let mut gx = rect.left() + 15.0 + stagger;
@@ -754,6 +1049,19 @@ impl eframe::App for SettingsApp {
                                     if self.config.show_text && !sample_text.is_empty() {
                                         let preview_str = lines.first().copied().unwrap_or("");
                                         painter.text(egui::pos2(cur_x, gy), egui::Align2::LEFT_TOP, preview_str, font_id.clone(), main_col);
+                                        cur_x += text_w;
+                                    }
+
+                                    // Dynamic single line connecting adjacent repeated texts
+                                    if self.config.show_lines_next_to_text && self.config.single_line_connector {
+                                        let line_start = cur_x + 6.0;
+                                        let line_end = (gx + spacing_x - 6.0).max(line_start);
+                                        if line_end > line_start + 4.0 {
+                                            painter.line_segment(
+                                                [egui::pos2(line_start, gy + font_id.size * 0.6), egui::pos2(line_end, gy + font_id.size * 0.6)],
+                                                egui::Stroke::new(1.0, line_col),
+                                            );
+                                        }
                                     }
 
                                     gx += spacing_x;
@@ -764,6 +1072,24 @@ impl eframe::App for SettingsApp {
                         }
                     });
 
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let full_reset = egui::Button::new(
+                                egui::RichText::new("↺ Reset to Default Settings")
+                                    .size(12.5)
+                                    .color(egui::Color32::from_rgb(215, 220, 235)),
+                            )
+                            .fill(egui::Color32::from_rgb(44, 48, 58))
+                            .corner_radius(egui::CornerRadius::same(6));
+
+                            if ui.add_sized([180.0, 30.0], full_reset).on_hover_text("Restore all settings to factory defaults").clicked() {
+                                self.config = WatermarkConfig::default();
+                                changed = true;
+                            }
+                        });
+                    });
+                    ui.add_space(8.0);
 
                 } else {
                     // About Tab
@@ -837,7 +1163,22 @@ impl eframe::App for SettingsApp {
             });
 
         if changed {
-            self.notify_daemon();
+            self.pending_notify = true;
+        }
+
+        if self.pending_notify {
+            let now = std::time::Instant::now();
+            let should_notify = match self.last_notify_instant {
+                Some(last) => now.duration_since(last).as_millis() >= 40,
+                None => true,
+            };
+            if should_notify {
+                self.last_notify_instant = Some(now);
+                self.pending_notify = false;
+                self.notify_daemon();
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(40));
+            }
         }
     }
 }
@@ -846,7 +1187,8 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = egui::ViewportBuilder::default()
         .with_inner_size([680.0, 700.0])
         .with_min_inner_size([520.0, 480.0])
-        .with_title("Deskstamp Settings");
+        .with_title("Deskstamp Settings")
+        .with_app_id("io.github.gabrielbaiano.Deskstamp");
 
     if let Some(icon) = load_app_icon() {
         builder = builder.with_icon(icon);
