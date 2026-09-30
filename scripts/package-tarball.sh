@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="v0.1.0"
+RAW_VER="$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+VERSION="v${RAW_VER#v}"
 TARGET="x86_64-unknown-linux-gnu"
 PKG_NAME="deskstamp-${VERSION}-${TARGET}"
 PKG_DIR="/tmp/${PKG_NAME}"

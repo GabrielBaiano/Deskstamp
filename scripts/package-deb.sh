@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="0.1.0"
+RAW_VER="$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+VERSION="${RAW_VER#v}"
 ARCH="amd64"
 PKG_DIR="/tmp/deskstamp_${VERSION}_${ARCH}"
 
