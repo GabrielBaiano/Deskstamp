@@ -32,3 +32,22 @@ Tracking issues discovered during local testing on Wayland / Pop!_OS COSMIC.
   - Configured `.with_app_id("io.github.gabrielbaiano.Deskstamp")` on `egui::ViewportBuilder`.
   - Matched desktop entry `io.github.gabrielbaiano.Deskstamp.desktop` and hicolor icons for native Wayland compositor task switcher resolution.
 
+---
+
+### [BUG-04] Visual Glitches & High-DPI Scaling (Target: v0.3.0)
+- **Status**: Planned for v0.3.0
+- **Symptom**: On mixed-DPI multi-monitor setups (e.g. 4K at 150% scaling + 1080p at 100%), font rendering can show slight edge blurriness or clipping on corner margins.
+- **Planned Fix**:
+  - Implement per-output scale factor querying via `wl_output` event listener.
+  - Scale raster fonts and bounding boxes dynamically per physical monitor.
+
+---
+
+### [FEAT-01] Settings Menu UX & Layout Overhaul (Target: v0.3.0)
+- **Status**: Planned for v0.3.0
+- **Scope**:
+  - Reorganize settings into structured tabs (General, Layout, Appearance, Per-Workspace, System).
+  - Add inline daemon lifecycle management with live status badge (`Active` / `Idle`) and Start / Stop / Restart buttons.
+  - Add color swatch quick-pickers for popular desktop accent themes.
+  - Add real-time zoomable preview viewport.
+

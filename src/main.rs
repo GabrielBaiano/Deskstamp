@@ -79,8 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let is_test = command == Some("test");
             run_overlay(is_test)?;
         }
+        Some("version") | Some("--version") | Some("-v") => {
+            println!("deskstamp {}", env!("CARGO_PKG_VERSION"));
+        }
         _ => {
-            eprintln!("Usage: deskstamp [settings | daemon | test | toggle | reload | status | preview | config]");
+            eprintln!("Usage: deskstamp [settings | daemon | test | toggle | reload | status | preview | config | --version]");
         }
     }
 

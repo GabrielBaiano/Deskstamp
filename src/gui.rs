@@ -1117,7 +1117,7 @@ impl eframe::App for SettingsApp {
 
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new("Version:").strong());
-                            ui.label(egui::RichText::new("0.1.0").weak());
+                            ui.label(egui::RichText::new(env!("CARGO_PKG_VERSION")).weak());
                         });
 
                         ui.horizontal(|ui| {

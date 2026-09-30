@@ -37,15 +37,15 @@ It runs as a persistent transparent layer over your workspace, protecting stream
 ### Pop!_OS / Ubuntu / Debian (`.deb`)
 Download the `.deb` package from [Releases](https://github.com/GabrielBaiano/Deskstamp/releases):
 ```bash
-wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp_0.1.0_amd64.deb
-sudo apt install ./deskstamp_0.1.0_amd64.deb
+wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp_0.2.0_amd64.deb
+sudo apt install ./deskstamp_0.2.0_amd64.deb
 ```
 
 ### Generic Linux x86_64 (`.tar.gz`)
 ```bash
-wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf deskstamp-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
-cd deskstamp-v0.1.0-x86_64-unknown-linux-gnu
+wget https://github.com/GabrielBaiano/Deskstamp/releases/latest/download/deskstamp-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf deskstamp-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
+cd deskstamp-v0.2.0-x86_64-unknown-linux-gnu
 ./install.sh
 ```
 
